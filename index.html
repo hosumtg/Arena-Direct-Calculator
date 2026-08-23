@@ -39,6 +39,7 @@ const TIMES = "\u00D7";
 const DOT = "\u00B7";
 const TROPHY = "\uD83C\uDFC6";
 const BOX = "\uD83D\uDCE6";
+const PACK = "\uD83C\uDCCF";
 const TRI_DOWN = "\u25BE";
 const TRI_RIGHT = "\u25B8";
 
@@ -238,7 +239,7 @@ function ProbBar({ prob, label, color, maxProb }) {
   const width = maxProb > 0 ? (prob / maxProb) * 100 : 0;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, fontFamily: MONO, fontSize: 12 }}>
-      <span style={{ width: 70, textAlign: "right", color: "#8b8fa3", flexShrink: 0, fontSize: 10 }}>{label}</span>
+      <span style={{ width: 80, textAlign: "right", color: "#8b8fa3", flexShrink: 0, fontSize: 10 }}>{label}</span>
       <div style={{ flex: 1, height: 18, background: "rgba(255,255,255,0.03)", borderRadius: 3, overflow: "hidden" }}>
         <div style={{ width: `${width}%`, height: "100%", background: color, borderRadius: 3, transition: "width 0.5s cubic-bezier(0.16, 1, 0.3, 1)", minWidth: prob > 0 ? 2 : 0 }} />
       </div>
@@ -359,14 +360,15 @@ function Methodology({ title = "Notes & Methodology", items }) {
 const AQ_ENTRY_COST = 5000;
 const AQ_D1R = [0, 0, 0, 0, 1000, 2500, 5000, 5500];
 const AQ_D2G = [0, 6500, 7500, 8500, 10000, 0, 0];
-const AQ_D2U = [0, 0, 0, 0, 0, 700, 1400];
+const AQ_D2U_BASE = [0, 0, 0, 0, 0, 1000, 2000]; // cash prize BEFORE tax, in USD
 const AQ_D2Q = [false, false, false, false, false, true, true];
 
-function computeQualifierEV(baseWR, d2Decline) {
+function computeQualifierEV(baseWR, d2Decline, taxPct) {
   const wr1 = clamp01(baseWR);
   const wr2 = clamp01(baseWR - d2Decline);
   const d1P = bracketProbs(wr1, 7, 2);
   const d2P = bracketProbs(wr2, 6, 2);
+  const taxMult = clamp01(1 - taxPct / 100);
 
   let d1ExpGems = 0, d1QualProb = 0;
   const d1Details = [];
@@ -379,10 +381,11 @@ function computeQualifierEV(baseWR, d2Decline) {
   let d2ExpGems = 0, d2ExpUSD = 0, d2QualProb = 0;
   const d2Details = [];
   for (let w = 0; w <= 6; w++) {
+    const cashAfterTax = AQ_D2U_BASE[w] * taxMult;
     d2ExpGems += d2P[w] * AQ_D2G[w];
-    d2ExpUSD += d2P[w] * AQ_D2U[w];
+    d2ExpUSD += d2P[w] * cashAfterTax;
     if (AQ_D2Q[w]) d2QualProb += d2P[w];
-    d2Details.push({ wins: w, prob: d2P[w], gems: AQ_D2G[w], usd: AQ_D2U[w], qualifies: AQ_D2Q[w] });
+    d2Details.push({ wins: w, prob: d2P[w], gems: AQ_D2G[w], usd: cashAfterTax, qualifies: AQ_D2Q[w] });
   }
 
   const netGems = d1ExpGems + d1QualProb * d2ExpGems - AQ_ENTRY_COST;
@@ -416,25 +419,26 @@ function AQBreakdown({ title, details, showUSD }) {
 function ArenaQualifierPanel() {
   const [winRate, setWinRate] = useState(50);
   const [d2Decline, setD2Decline] = useState(3);
+  const [taxPct, setTaxPct] = useState(22);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [numRuns, setNumRuns] = useState(20);
   const [draftTwoTarget, setDraftTwoTarget] = useState(3);
   const [droughtLen, setDroughtLen] = useState(3);
 
-  const ev = useMemo(() => computeQualifierEV(winRate / 100, d2Decline / 100), [winRate, d2Decline]);
+  const ev = useMemo(() => computeQualifierEV(winRate / 100, d2Decline / 100, taxPct), [winRate, d2Decline, taxPct]);
   const evColor = ev.netGems >= 0 ? "#22c55e" : "#ef4444";
   const dollarColor = ev.overallEV >= 0 ? "#22c55e" : "#ef4444";
 
   const curve = useMemo(() => {
     const pts = [];
     for (let wr = 35; wr <= 75; wr += 1) {
-      const e = computeQualifierEV(wr / 100, d2Decline / 100);
+      const e = computeQualifierEV(wr / 100, d2Decline / 100, taxPct);
       pts.push({ x: wr, raw: e.overallEV });
     }
     const minV = Math.min(...pts.map((p) => p.raw)), maxV = Math.max(...pts.map((p) => p.raw));
     const range = maxV - minV || 1;
     return pts.map((p) => ({ x: p.x, y: (p.raw - minV) / range, raw: p.raw }));
-  }, [d2Decline]);
+  }, [d2Decline, taxPct]);
 
   const d2Clamped = Math.min(draftTwoTarget, numRuns);
   const d2Pmf = useMemo(() => binomialPmfArray(numRuns, ev.d1QualProb), [numRuns, ev.d1QualProb]);
@@ -456,7 +460,7 @@ function ArenaQualifierPanel() {
     const typical = typicalDroughtLength(numRuns, pFailD2);
     const maxL = Math.min(numRuns, 40);
     const curvePts = [];
-    for (let L = 1; L <= maxL; L++) curvePts.push({ x: L, y: droughtProbability(numRuns, L, pFailD2), raw: droughtProbability(numRuns, L, pFailD2) });
+    for (let L = 1; L <= maxL; L++) { const v = droughtProbability(numRuns, L, pFailD2); curvePts.push({ x: L, y: v, raw: v }); }
     return { probability: p, typical, curvePts, maxL };
   }, [numRuns, droughtClamped, pFailD2]);
 
@@ -479,9 +483,14 @@ function ArenaQualifierPanel() {
         leftLabel="30%" rightLabel="80%"
         helpText="Your Bo1 game win rate, used directly for Draft One. Draft Two opponents are tougher \u2014 adjust the decline below." />
 
-      <SliderBlock label="Draft Two WR Decline" value={d2Decline} onChange={setD2Decline} min={0} max={10} step={1} display={`${MINUS}${d2Decline}%`} accentColor="#f97316"
-        leftLabel="0%" midLabel="3% default" rightLabel={`${MINUS}10%`}
-        helpText={`All Draft Two opponents already went 7-x, so they're tougher on average. Effective D2 WR: ${Math.max(0, winRate - d2Decline).toFixed(1)}%`} />
+      <SliderRow>
+        <SliderBlock label="Draft Two WR Decline" value={d2Decline} onChange={setD2Decline} min={0} max={10} step={1} display={`${MINUS}${d2Decline}%`} accentColor="#f97316"
+          leftLabel="0%" midLabel="3% default" rightLabel={`${MINUS}10%`}
+          helpText={`All Draft Two opponents already went 7-x. Effective D2 WR: ${Math.max(0, winRate - d2Decline).toFixed(1)}%`} />
+        <SliderBlock label="Tax %" value={taxPct} onChange={setTaxPct} min={0} max={50} step={1} display={`${taxPct}%`} accentColor="#eab308"
+          leftLabel="0%" midLabel="22% default" rightLabel="50%"
+          helpText={`Applied to the $1,000 / $2,000 Draft Two cash prizes. At ${taxPct}%, D2 5W nets $${fmt(1000 * (1 - taxPct / 100))} and 6W nets $${fmt(2000 * (1 - taxPct / 100))}.`} />
+      </SliderRow>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 10, marginTop: 12 }}>
         <StatCard label="Overall EV" value={signUSD(ev.overallEV)} sub="per entry (gems + cash)" accent={dollarColor} />
@@ -494,7 +503,7 @@ function ArenaQualifierPanel() {
 
       <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: "14px 18px", marginBottom: 18, fontSize: 11, color: "#6b7084", lineHeight: 1.6 }}>
         <strong style={{ color: "#8b8fa3" }}>{"Overall EV"}</strong>
-        {" converts gems to dollars at $0.005/gem, then adds expected cash. At "}{winRate}{"% base WR, net gems per entry are "}
+        {" converts gems to dollars at $0.005/gem, then adds expected cash (after tax). At "}{winRate}{"% base WR, net gems per entry are "}
         <span style={{ color: evColor }}>{signGems(ev.netGems)}{"g"}</span>
         {" ("}{signUSD(ev.netGems * GEM_USD)}{"), plus "}{signUSD(ev.cashEV)}{" expected cash, for "}
         <span style={{ color: dollarColor }}>{signUSD(ev.overallEV)}</span>
@@ -507,11 +516,11 @@ function ArenaQualifierPanel() {
         <Section>
           <AQBreakdown title={`Draft One (7W / 2L) ${DASH} WR: ${pct(ev.wr1)}`} details={ev.d1Details} />
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", margin: "14px 0" }} />
-          <AQBreakdown title={`Draft Two (6W / 2L) ${DASH} WR: ${pct(ev.wr2)} (conditional)`} details={ev.d2Details} showUSD />
+          <AQBreakdown title={`Draft Two (6W / 2L) ${DASH} WR: ${pct(ev.wr2)} (conditional, after ${taxPct}% tax)`} details={ev.d2Details} showUSD />
         </Section>
       )}
 
-      <Section title="Overall Dollar EV by Win Rate" subtitle={`Per entry (Draft Two: ${MINUS}${d2Decline}%) ${DOT} hover to see exact EV at any win rate`}>
+      <Section title="Overall Dollar EV by Win Rate" subtitle={`Per entry (Draft Two: ${MINUS}${d2Decline}%, tax ${taxPct}%) ${DOT} hover to see exact EV at any win rate`}>
         <LineChart points={curve} currentX={winRate} xFormat={(wr) => `${wr}%`} yFormat={(v) => signUSD(v)} />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859" }}><span>{"35%"}</span><span>{"75%"}</span></div>
       </Section>
@@ -552,7 +561,7 @@ function ArenaQualifierPanel() {
 
       <Methodology items={[
         { h: "Model:", body: "Each game is an independent Bernoulli trial. Bracket probabilities computed exactly via dynamic programming (7W/2L for D1, 6W/2L for D2)." },
-        { h: "Dollar valuation:", body: "Gems priced at $0.005 each. Overall EV can be positive even when gem EV is negative, since D2 5W/6W cash prizes are large in dollar terms." },
+        { h: "Dollar valuation:", body: "Gems priced at $0.005 each. Draft Two cash prizes are $1,000 (5W) and $2,000 (6W) before tax, reduced by the tax slider." },
         { h: "% to Qualify (Champ):", body: "1 \u2212 (1 \u2212 P(Championship per run))^N \u2014 the standard binomial \"at least one success\" formula." },
         { h: "Drought math:", body: "Exact Markov-chain DP over your consecutive-no-Draft-Two streak, not simulation." },
         { h: "Not modeled:", body: "Within-event win-based matchmaking, draft quality variance, or the gold entry option." },
@@ -593,8 +602,6 @@ function computeProTourExact(entrants, rounds, cutoff, pMatch) {
       for (let t = 0; t <= remaining; t++) {
         const tp = Tpmf[t];
         if (tp === 0) continue;
-        // (min(t, maxA) + 1) / (t + 1): fair uniform-random share of the tiebreaker
-        // among the (t + 1) players (me + t others) tied on this record.
         innerSum += tp * ((Math.min(t, maxA) + 1) / (t + 1));
       }
       pQualifyGivenK += gp * innerSum;
@@ -700,7 +707,7 @@ function ProTourPanel() {
       <Methodology items={[
         { h: "The model:", body: "Your final win count X follows Binomial(rounds, p). Every other entrant's win count Y is treated as Binomial(rounds, 0.5)." },
         { h: "The computation:", body: "For each win total k, players ahead follow Binomial(entrants\u22121, P(Y>k)), and tied players follow a second binomial." },
-        { h: "Tiebreaks distributed fairly:", body: "When a cutoff falls in the middle of a tied group (e.g. 16 players at 11-4 but only 10 spots remain among them), each tied player's qualification probability is the exact uniform share \u2014 (available spots) / (tied group size) \u2014 since real tiebreakers effectively pick a random order within a tied record." },
+        { h: "Tiebreaks distributed fairly:", body: "When a cutoff falls in the middle of a tied group (e.g. 16 players at 11-4 but only some spots remain among them), each tied player's qualification probability is the exact uniform share \u2014 (available spots) / (tied group size) \u2014 since real tiebreakers effectively pick a random order within a tied record." },
         { h: "Game vs. match mode:", body: "Game mode derives match win probability via p\u00B2(3\u22122p). Match mode uses your input directly." },
         { h: "Not modeled:", body: "Swiss pairing correlations, skill variance among the field, byes, and the specific (non-uniform) real-world tiebreaker formula \u2014 only its fairness property is assumed." },
       ]} />
@@ -712,28 +719,31 @@ function ProTourPanel() {
 // TAB 3 — ARENA DIRECT EV
 // ══════════════════════════════════════════════════════════════
 const AD_STRUCTURES = [
-  { id: "A", label: "6,000 Gems", sub: "Standard Play Box", entry: 6000, gems: [0, 0, 0, 2700, 5400, 10800, 0, 0], boxes: [0, 0, 0, 0, 0, 0, 1, 2], boxRange: "standard" },
-  { id: "B", label: "8,000 Gems", sub: "Premium Play Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 0, 0], boxes: [0, 0, 0, 0, 0, 0, 1, 2], boxRange: "standard" },
-  { id: "C", label: "8,000 Gems", sub: "Collector Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 14400, 0], boxes: [0, 0, 0, 0, 0, 0, 0, 1], boxRange: "premium" },
+  { id: "A", label: "6,000 Gems", sub: "Standard Play Box", entry: 6000, gems: [0, 0, 0, 2700, 5400, 10800, 0, 0], boxes: [0, 0, 0, 0, 0, 0, 1, 2], packs: [0, 0, 0, 8, 16, 24, 0, 0], boxRange: "standard" },
+  { id: "B", label: "8,000 Gems", sub: "Premium Play Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 0, 0], boxes: [0, 0, 0, 0, 0, 0, 1, 2], packs: [0, 0, 0, 8, 16, 24, 0, 0], boxRange: "standard" },
+  { id: "C", label: "8,000 Gems", sub: "Collector Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 14400, 0], boxes: [0, 0, 0, 0, 0, 0, 0, 1], packs: [0, 0, 0, 8, 16, 24, 32, 0], boxRange: "premium" },
 ];
 
-function computeDirectEV(winRate, structure, boxValueUSD, taxPct, resalePct) {
+function computeDirectEV(winRate, structure, boxValueUSD, taxPct, resalePct, packGemValue) {
   const probs = bracketProbs(winRate, 7, 2);
   const multiplier = Math.min(1, Math.max(0, (resalePct - taxPct) / 100));
   const effectiveBoxUSD = boxValueUSD * multiplier;
 
-  let expGems = 0, expBoxes = 0, expUSD = 0, pAnyPayout = 0;
+  let expGems = 0, expBoxes = 0, expUSD = 0, pAnyPayout = 0, expPacks = 0;
   const details = [];
   const maxBoxVal = Math.max(...structure.boxes);
   const boxDist = new Array(maxBoxVal + 1).fill(0);
   for (let w = 0; w <= 7; w++) {
-    const g = structure.gems[w], b = structure.boxes[w];
-    expGems += probs[w] * g;
+    const baseGems = structure.gems[w], b = structure.boxes[w], packs = structure.packs[w] || 0;
+    const packGems = packs * packGemValue;
+    const totalGems = baseGems + packGems;
+    expGems += probs[w] * totalGems;
     expBoxes += probs[w] * b;
-    expUSD += probs[w] * (g * GEM_USD + b * effectiveBoxUSD);
-    if (g > 0 || b > 0) pAnyPayout += probs[w];
+    expPacks += probs[w] * packs;
+    expUSD += probs[w] * (totalGems * GEM_USD + b * effectiveBoxUSD);
+    if (baseGems > 0 || b > 0) pAnyPayout += probs[w];
     boxDist[b] += probs[w];
-    details.push({ wins: w, prob: probs[w], gems: g, boxes: b });
+    details.push({ wins: w, prob: probs[w], gems: baseGems, packs, packGems, totalGems, boxes: b });
   }
   const overallEV = expUSD - structure.entry * GEM_USD;
   const netGems = expGems - structure.entry;
@@ -743,7 +753,7 @@ function computeDirectEV(winRate, structure, boxValueUSD, taxPct, resalePct) {
   for (let w = boxThreshold; w <= 7; w++) pBoxSuccess += probs[w];
   const pFail = clamp01(1 - pBoxSuccess);
 
-  return { probs, expGems, expBoxes, expUSD, overallEV, netGems, details, effectiveBoxUSD, multiplier, pAnyPayout, p7Win: probs[7], boxThreshold, pBoxSuccess, pFail, boxDist };
+  return { probs, expGems, expBoxes, expPacks, expUSD, overallEV, netGems, details, effectiveBoxUSD, multiplier, pAnyPayout, p7Win: probs[7], boxThreshold, pBoxSuccess, pFail, boxDist };
 }
 
 function ArenaDirectPanel() {
@@ -753,6 +763,7 @@ function ArenaDirectPanel() {
   const [boxValuePremium, setBoxValuePremium] = useState(450);
   const [taxPct, setTaxPct] = useState(22);
   const [resalePct, setResalePct] = useState(85);
+  const [packGemValue, setPackGemValue] = useState(20);
   const [numRuns, setNumRuns] = useState(20);
   const [droughtLen, setDroughtLen] = useState(5);
   const [boxesWonTarget, setBoxesWonTarget] = useState(1);
@@ -762,14 +773,14 @@ function ArenaDirectPanel() {
   const droughtClamped = Math.min(droughtLen, numRuns);
 
   const result = useMemo(
-    () => computeDirectEV(winRate / 100, structure, boxValueUSD, taxPct, resalePct),
-    [winRate, structure, boxValueUSD, taxPct, resalePct]
+    () => computeDirectEV(winRate / 100, structure, boxValueUSD, taxPct, resalePct, packGemValue),
+    [winRate, structure, boxValueUSD, taxPct, resalePct, packGemValue]
   );
 
   const curve = useMemo(() => {
     const pts = [];
     for (let wr = 30; wr <= 80; wr += 1) {
-      const r = computeDirectEV(wr / 100, structure, boxValueUSD, taxPct, resalePct);
+      const r = computeDirectEV(wr / 100, structure, boxValueUSD, taxPct, resalePct, packGemValue);
       pts.push({ x: wr, raw: r.overallEV });
     }
     const minV = Math.min(...pts.map((p) => p.raw)), maxV = Math.max(...pts.map((p) => p.raw));
@@ -779,7 +790,7 @@ function ArenaDirectPanel() {
       if (pts[i - 1].raw < 0 && pts[i].raw >= 0) { zeroCrossWR = pts[i - 1].x + (-pts[i - 1].raw / (pts[i].raw - pts[i - 1].raw)); break; }
     }
     return { normalized: pts.map((p) => ({ x: p.x, y: (p.raw - minV) / range, raw: p.raw })), zeroCrossWR };
-  }, [structure, boxValueUSD, taxPct, resalePct]);
+  }, [structure, boxValueUSD, taxPct, resalePct, packGemValue]);
 
   const drought = useMemo(() => {
     const p = droughtProbability(numRuns, droughtClamped, result.pFail);
@@ -813,8 +824,8 @@ function ArenaDirectPanel() {
       <SidebarStat label="Overall EV / entry" value={signUSD(result.overallEV)} sub={`${structure.label} ${DOT} ${structure.sub}`} accent={evColor} />
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", margin: "4px 0 14px" }} />
       <SliderBlock label="Number of Runs" value={numRuns} onChange={(v) => { setNumRuns(v); setBoxesWonTarget((b) => Math.min(b, v * 2)); setDroughtLen((d) => Math.min(d, v)); }} min={1} max={200} step={1} display={fmt(numRuns)} accentColor="#22c55e" compact />
-      <SidebarStat big label={`Total EV (${fmt(numRuns)} runs)`} value={signUSD(totalEV)} sub="gem EV + box value, combined" accent={totalEV >= 0 ? "#22c55e" : "#ef4444"} />
-      <SidebarStat label="Gem EV in $" value={signUSD(totalGems * GEM_USD)} sub={`${signGems(totalGems)}g net`} accent={totalGems >= 0 ? "#22c55e" : "#ef4444"} />
+      <SidebarStat big label={`Total EV (${fmt(numRuns)} runs)`} value={signUSD(totalEV)} sub="gem + pack EV + box value" accent={totalEV >= 0 ? "#22c55e" : "#ef4444"} />
+      <SidebarStat label="Gem EV in $" value={signUSD(totalGems * GEM_USD)} sub={`${signGems(totalGems)}g net (incl. packs)`} accent={totalGems >= 0 ? "#22c55e" : "#ef4444"} />
       <SidebarStat label="Total Cost" value={`${fmt(totalCostGems)}g`} sub={`$${fmt(totalCostGems * GEM_USD, 2)}`} accent="#8b8fa3" />
       <SidebarStat label="Expected Boxes" value={boxesStats.expected.toFixed(2)} sub={`over ${fmt(numRuns)} runs`} accent="#06b6d4" />
     </Sidebar>
@@ -845,12 +856,17 @@ function ArenaDirectPanel() {
           helpText="Percentage of a box's face value lost to tax." />
       </SliderRow>
 
-      <SliderBlock label="Resale %" value={resalePct} onChange={setResalePct} min={50} max={100} step={1} display={`${resalePct}%`} accentColor="#eab308"
-        helpText={`% of face value kept when reselling (100% = no loss, 50% = half). Combines additively with tax: max(0, resale% ${MINUS} tax%) = ${pct(result.multiplier)} of face value \u2192 $${fmt(result.effectiveBoxUSD, 2)} per box.`} />
+      <SliderRow>
+        <SliderBlock label="Resale %" value={resalePct} onChange={setResalePct} min={50} max={100} step={1} display={`${resalePct}%`} accentColor="#eab308"
+          helpText={`% of face value kept when reselling. Combines additively with tax: max(0, resale% ${MINUS} tax%) = ${pct(result.multiplier)} \u2192 $${fmt(result.effectiveBoxUSD, 2)} per box.`} />
+        <SliderBlock label="Pack Value (gems/pack)" value={packGemValue} onChange={setPackGemValue} min={0} max={40} step={1} display={`${packGemValue}g`} accentColor="#22c55e"
+          helpText={`Every structure grants packs alongside gems at 3W/4W/5W (8/16/24 packs); Collector Box also grants 32 packs at 6W. Each pack is worth this many gems, added directly to the gem reward at that tier.`} />
+      </SliderRow>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 18, marginTop: 16 }}>
         <StatCard label="Overall EV" value={signUSD(result.overallEV)} sub={`per entry, ${fmt(structure.entry)}g entry`} accent={evColor} />
-        <StatCard label="Expected Gems" value={signGems(result.netGems)} sub="net gems" accent={result.netGems >= 0 ? "#22c55e" : "#ef4444"} />
+        <StatCard label="Expected Gems" value={signGems(result.netGems)} sub="net gems, incl. packs" accent={result.netGems >= 0 ? "#22c55e" : "#ef4444"} />
+        <StatCard label="Expected Packs" value={result.expPacks.toFixed(2)} sub={`\u00D7 ${packGemValue}g each`} accent="#22c55e" />
         <StatCard label="Expected Boxes" value={result.expBoxes.toFixed(3)} sub={`\u00D7 $${fmt(result.effectiveBoxUSD, 2)} value`} accent="#06b6d4" />
         <StatCard label="P(Any Payout)" value={pct(result.pAnyPayout)} sub={`${GEQ}3 wins`} accent="#eab308" />
         <StatCard label="P(7 Win Run)" value={pct(result.p7Win, 2)} sub="includes 7-0 and 7-1" accent="#a855f7" />
@@ -863,13 +879,14 @@ function ArenaDirectPanel() {
           if (d.gems > 0 || d.boxes > 0) color = d.boxes > 0 ? "#a855f7" : "#22c55e";
           const parts = [];
           if (d.gems > 0) parts.push(`${fmt(d.gems)}g`);
+          if (d.packs > 0) parts.push(`${d.packs}${PACK}(${fmt(d.packGems)}g)`);
           if (d.boxes > 0) parts.push(`${d.boxes}${TIMES}${BOX}`);
           if (parts.length === 0) parts.push(DASH);
           return <ProbBar key={d.wins} prob={d.prob} label={`${d.wins}W ${ARROW} ${parts.join(" + ")}`} color={color} maxProb={maxProb} />;
         })}
       </Section>
 
-      <Section title="Overall EV by Win Rate" subtitle={`${structure.label} ${DOT} ${structure.sub} ${DOT} box $${fmt(boxValueUSD)}, tax ${taxPct}%, resale ${resalePct}% ${DOT} hover for exact EV`}>
+      <Section title="Overall EV by Win Rate" subtitle={`${structure.label} ${DOT} ${structure.sub} ${DOT} box $${fmt(boxValueUSD)}, tax ${taxPct}%, resale ${resalePct}%, packs ${packGemValue}g ${DOT} hover for exact EV`}>
         <LineChart points={curve.normalized} currentX={winRate} xFormat={(wr) => `${wr}%`} yFormat={(v) => signUSD(v)} />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859" }}><span>{"30%"}</span><span>{"80%"}</span></div>
         {curve.zeroCrossWR && (
@@ -915,6 +932,7 @@ function ArenaDirectPanel() {
       <Methodology items={[
         { h: "Structure math:", body: "Same bracket-completion DP as Draft One in the Arena Qualifier tab, using your Bo1 game win rate directly." },
         { h: "Tax vs. resale:", body: "Resale% is the share of face value recovered when reselling; tax% is lost separately. Combined additively: max(0, resale% \u2212 tax%)." },
+        { h: "Packs:", body: "All structures grant 8/16/24 packs at 3W/4W/5W; the Collector Box also grants 32 packs at 6W. Each pack's value is set in gems via the slider and added directly to that tier's gem reward before any dollar conversion \u2014 a small EV boost on top of the base gem payouts." },
         { h: "Boxes-won math:", body: "Each run yields 0, 1, or 2 boxes with its own probability. The total across N runs is computed via exact convolution, correctly weighting double-box 7-0 finishes." },
         { h: "Drought math:", body: "Exact Markov-chain DP over your consecutive-failure streak." },
         { h: "Not modeled:", body: "Draft quality/deck variance, and opponent-strength changes as a run progresses. The three structures are mutually exclusive per entry, so they're shown one at a time rather than compared side by side." },
@@ -950,7 +968,7 @@ function App() {
         {tab === "direct" && <ArenaDirectPanel />}
 
         <div style={{ textAlign: "center", fontSize: 10, color: "#333644", marginTop: 20, paddingBottom: 20 }}>
-          {"Exact binomial / DP math "}{DOT}{" No randomness anywhere "}{DOT}{" v6"}
+          {"Exact binomial / DP math "}{DOT}{" No randomness anywhere "}{DOT}{" v7"}
         </div>
       </div>
     </div>
