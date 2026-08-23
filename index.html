@@ -86,6 +86,7 @@ function binomialPmfArray(n, p) {
 function clamp01(x) { return Math.min(1, Math.max(0, x)); }
 function bo3MatchWinProb(p) { return p * p * (3 - 2 * p); }
 
+// P(at least one streak of >= L consecutive "failures" within N independent trials).
 function droughtProbability(N, L, pFail) {
   if (L <= 0) return 1;
   if (N <= 0) return 0;
@@ -114,6 +115,8 @@ function typicalDroughtLength(N, pFail) {
   return N;
 }
 
+// Exact distribution of TOTAL count over N independent runs, where each run
+// contributes 0, 1, 2, ... units with its own probability (perRunDist[unitCount]).
 function totalCountPmfOverRuns(perRunDist, N) {
   const maxPerRun = perRunDist.length - 1;
   let dp = [1];
@@ -244,33 +247,67 @@ function ProbBar({ prob, label, color, maxProb }) {
   );
 }
 
-function LineChart({ points, height = 150, currentX }) {
+// Hoverable line chart. `points` must be [{x, y, raw}] where y is the 0..1 draw
+// coordinate and raw is the real-world value to show in the tooltip.
+function LineChart({ points, height = 150, currentX, xFormat, yFormat }) {
+  const [hover, setHover] = useState(null);
   const w = 100, h = 100;
   const path = points.map((pt, i) => `${i === 0 ? "M" : "L"}${(i / (points.length - 1)) * w},${h - pt.y * h}`).join(" ");
-  let cx = null, cy = null;
-  if (currentX != null) {
+  const xf = xFormat || ((v) => `${v}`);
+  const yf = yFormat || ((v) => `${v}`);
+
+  function markerPos(x) {
     const minX = points[0].x, maxX = points[points.length - 1].x;
-    if (currentX >= minX && currentX <= maxX) {
-      cx = ((currentX - minX) / (maxX - minX)) * w;
-      let i = 0;
-      while (i < points.length - 1 && points[i + 1].x < currentX) i++;
-      const p0 = points[Math.min(i, points.length - 1)], p1 = points[Math.min(i + 1, points.length - 1)];
-      const t = p1.x === p0.x ? 0 : (currentX - p0.x) / (p1.x - p0.x);
-      cy = h - (p0.y + (p1.y - p0.y) * t) * h;
-    }
+    if (x < minX || x > maxX) return null;
+    const cx = ((x - minX) / (maxX - minX)) * w;
+    let i = 0;
+    while (i < points.length - 1 && points[i + 1].x < x) i++;
+    const p0 = points[Math.min(i, points.length - 1)], p1 = points[Math.min(i + 1, points.length - 1)];
+    const t = p1.x === p0.x ? 0 : (x - p0.x) / (p1.x - p0.x);
+    const cy = h - (p0.y + (p1.y - p0.y) * t) * h;
+    return { cx, cy };
   }
+  const cur = currentX != null ? markerPos(currentX) : null;
+
+  function handleMove(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = clamp01((e.clientX - rect.left) / rect.width);
+    const idx = Math.round(relX * (points.length - 1));
+    setHover(Math.max(0, Math.min(points.length - 1, idx)));
+  }
+
+  const hoverPt = hover != null ? points[hover] : null;
+  const hoverXPct = hover != null ? (hover / (points.length - 1)) * 100 : null;
+  const hoverYPct = hoverPt != null ? (1 - hoverPt.y) * 100 : null;
+
   return (
-    <div style={{ height }}>
-      <svg viewBox={`-4 -4 ${w + 8} ${h + 12}`} style={{ width: "100%", height: "100%" }} preserveAspectRatio="none">
+    <div style={{ height, position: "relative" }} onMouseMove={handleMove} onMouseLeave={() => setHover(null)}>
+      <svg viewBox={`-4 -4 ${w + 8} ${h + 12}`} style={{ width: "100%", height: "100%", cursor: "crosshair" }} preserveAspectRatio="none">
         <path d={path + ` L${w},${h} L0,${h} Z`} fill="rgba(34,197,94,0.12)" />
         <path d={path} fill="none" stroke="#22c55e" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-        {cx != null && cy != null && (
+        {cur && (
           <>
-            <circle cx={cx} cy={cy} r={1.5} fill="#a855f7" stroke="#0c0d12" strokeWidth={0.5} />
-            <line x1={cx} y1={cy} x2={cx} y2={h} stroke="#a855f7" strokeWidth={0.3} strokeDasharray="1,1" />
+            <circle cx={cur.cx} cy={cur.cy} r={1.5} fill="#a855f7" stroke="#0c0d12" strokeWidth={0.5} />
+            <line x1={cur.cx} y1={cur.cy} x2={cur.cx} y2={h} stroke="#a855f7" strokeWidth={0.3} strokeDasharray="1,1" />
+          </>
+        )}
+        {hoverPt && (
+          <>
+            <line x1={(hover / (points.length - 1)) * w} y1={0} x2={(hover / (points.length - 1)) * w} y2={h} stroke="rgba(255,255,255,0.25)" strokeWidth={0.3} strokeDasharray="1,1" />
+            <circle cx={(hover / (points.length - 1)) * w} cy={h - hoverPt.y * h} r={1.4} fill="#fff" stroke="#0c0d12" strokeWidth={0.4} />
           </>
         )}
       </svg>
+      {hoverPt && (
+        <div style={{
+          position: "absolute", left: `${hoverXPct}%`, top: `${hoverYPct}%`,
+          transform: "translate(-50%, -130%)", background: "#1a1b23", border: "1px solid rgba(255,255,255,0.15)",
+          borderRadius: 6, padding: "4px 9px", fontSize: 10, fontFamily: MONO, color: "#e2e4ec",
+          whiteSpace: "nowrap", pointerEvents: "none", zIndex: 5, boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+        }}>
+          {xf(hoverPt.x)}{": "}<span style={{ color: "#22c55e" }}>{yf(hoverPt.raw)}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -325,8 +362,8 @@ const AQ_D2G = [0, 6500, 7500, 8500, 10000, 0, 0];
 const AQ_D2U = [0, 0, 0, 0, 0, 700, 1400];
 const AQ_D2Q = [false, false, false, false, false, true, true];
 
-function computeQualifierEV(baseWR, d1Boost, d2Decline) {
-  const wr1 = clamp01(baseWR + d1Boost);
+function computeQualifierEV(baseWR, d2Decline) {
+  const wr1 = clamp01(baseWR);
   const wr2 = clamp01(baseWR - d2Decline);
   const d1P = bracketProbs(wr1, 7, 2);
   const d2P = bracketProbs(wr2, 6, 2);
@@ -377,35 +414,33 @@ function AQBreakdown({ title, details, showUSD }) {
 }
 
 function ArenaQualifierPanel() {
-  const [winRate, setWinRate] = useState(56);
-  const [d1Boost, setD1Boost] = useState(2);
+  const [winRate, setWinRate] = useState(50);
   const [d2Decline, setD2Decline] = useState(3);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showTuning, setShowTuning] = useState(false);
   const [numRuns, setNumRuns] = useState(20);
   const [draftTwoTarget, setDraftTwoTarget] = useState(3);
   const [droughtLen, setDroughtLen] = useState(3);
 
-  const ev = useMemo(() => computeQualifierEV(winRate / 100, d1Boost / 100, d2Decline / 100), [winRate, d1Boost, d2Decline]);
+  const ev = useMemo(() => computeQualifierEV(winRate / 100, d2Decline / 100), [winRate, d2Decline]);
   const evColor = ev.netGems >= 0 ? "#22c55e" : "#ef4444";
   const dollarColor = ev.overallEV >= 0 ? "#22c55e" : "#ef4444";
 
   const curve = useMemo(() => {
     const pts = [];
     for (let wr = 35; wr <= 75; wr += 1) {
-      const e = computeQualifierEV(wr / 100, d1Boost / 100, d2Decline / 100);
-      pts.push({ x: wr, y: e.overallEV });
+      const e = computeQualifierEV(wr / 100, d2Decline / 100);
+      pts.push({ x: wr, raw: e.overallEV });
     }
-    const minV = Math.min(...pts.map((p) => p.y)), maxV = Math.max(...pts.map((p) => p.y));
+    const minV = Math.min(...pts.map((p) => p.raw)), maxV = Math.max(...pts.map((p) => p.raw));
     const range = maxV - minV || 1;
-    return pts.map((p) => ({ x: p.x, y: (p.y - minV) / range }));
-  }, [d1Boost, d2Decline]);
+    return pts.map((p) => ({ x: p.x, y: (p.raw - minV) / range, raw: p.raw }));
+  }, [d2Decline]);
 
   const d2Clamped = Math.min(draftTwoTarget, numRuns);
   const d2Pmf = useMemo(() => binomialPmfArray(numRuns, ev.d1QualProb), [numRuns, ev.d1QualProb]);
   const d2Cdf = useMemo(() => cdfFromPmf(d2Pmf), [d2Pmf]);
   const d2Percentile = d2Cdf[d2Clamped];
-  const d2CurvePts = useMemo(() => d2Cdf.map((y, x) => ({ x, y })), [d2Cdf]);
+  const d2CurvePts = useMemo(() => d2Cdf.map((y, x) => ({ x, y, raw: y })), [d2Cdf]);
 
   const totalCostGems = numRuns * AQ_ENTRY_COST;
   const totalGemEV = ev.netGems * numRuns;
@@ -421,7 +456,7 @@ function ArenaQualifierPanel() {
     const typical = typicalDroughtLength(numRuns, pFailD2);
     const maxL = Math.min(numRuns, 40);
     const curvePts = [];
-    for (let L = 1; L <= maxL; L++) curvePts.push({ x: L, y: droughtProbability(numRuns, L, pFailD2) });
+    for (let L = 1; L <= maxL; L++) curvePts.push({ x: L, y: droughtProbability(numRuns, L, pFailD2), raw: droughtProbability(numRuns, L, pFailD2) });
     return { probability: p, typical, curvePts, maxL };
   }, [numRuns, droughtClamped, pFailD2]);
 
@@ -429,7 +464,7 @@ function ArenaQualifierPanel() {
     <Sidebar title="Live Summary">
       <SidebarStat label="Overall EV / entry" value={signUSD(ev.overallEV)} sub={`${signGems(ev.netGems)}g + ${signUSD(ev.cashEV)} cash`} accent={dollarColor} />
       <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", margin: "4px 0 14px" }} />
-      <SliderBlock label="Number of Runs" value={numRuns} onChange={(v) => { setNumRuns(v); setDraftTwoTarget((t) => Math.min(t, v)); setDroughtLen((d) => Math.min(d, v)); }} min={1} max={200} step={1} display={fmt(numRuns)} accentColor="#22c55e" compact />
+      <SliderBlock label="Number of Draft Ones" value={numRuns} onChange={(v) => { setNumRuns(v); setDraftTwoTarget((t) => Math.min(t, v)); setDroughtLen((d) => Math.min(d, v)); }} min={1} max={200} step={1} display={fmt(numRuns)} accentColor="#22c55e" compact />
       <SidebarStat big label={`Total EV (${fmt(numRuns)} runs)`} value={signUSD(totalOverallEV)} sub="combined gem + cash EV" accent={totalOverallEV >= 0 ? "#22c55e" : "#ef4444"} />
       <SidebarStat label="Gem EV in $" value={signUSD(totalGemEV * GEM_USD)} sub={`${signGems(totalGemEV)}g net`} accent={totalGemEV >= 0 ? "#22c55e" : "#ef4444"} />
       <SidebarStat label="Cash EV" value={signUSD(totalCashEV)} accent={totalCashEV > 0 ? "#22c55e" : "#8b8fa3"} />
@@ -440,23 +475,13 @@ function ArenaQualifierPanel() {
 
   return (
     <PanelLayout sidebar={sidebar}>
-      <SliderBlock label="Your Premier Draft Win Rate" value={winRate} onChange={setWinRate} min={30} max={80} step={1} display={`${winRate}%`} accentColor="#a855f7"
-        leftLabel="30%" midLabel="56% 17L avg" rightLabel="80%"
-        helpText={`Your Bo1 game win rate from 17Lands Premier Draft. This is your baseline ${DASH} field strength adjustments are below.`} />
+      <SliderBlock label="Your Game Win % (Bo1)" value={winRate} onChange={setWinRate} min={30} max={80} step={1} display={`${winRate}%`} accentColor="#a855f7"
+        leftLabel="30%" rightLabel="80%"
+        helpText="Your Bo1 game win rate, used directly for Draft One. Draft Two opponents are tougher \u2014 adjust the decline below." />
 
-      <ToggleButton open={showTuning} onClick={() => setShowTuning(!showTuning)}>
-        {"Field strength adjustments (D1: +"}{d1Boost}{"% / D2: "}{MINUS}{d2Decline}{"%)"}
-      </ToggleButton>
-      {showTuning && (
-        <SliderRow>
-          <SliderBlock label="Draft One WR Boost" value={d1Boost} onChange={setD1Boost} min={0} max={8} step={1} display={`+${d1Boost}%`} accentColor="#22c55e"
-            leftLabel="0%" rightLabel="+8%"
-            helpText={`Open entry, no matchmaking. Effective D1 WR: ${Math.min(100, winRate + d1Boost).toFixed(1)}%`} />
-          <SliderBlock label="Draft Two WR Decline" value={d2Decline} onChange={setD2Decline} min={0} max={15} step={1} display={`${MINUS}${d2Decline}%`} accentColor="#f97316"
-            leftLabel="0%" rightLabel={`${MINUS}15%`}
-            helpText={`All D2 opponents went 7-x. Effective D2 WR: ${Math.max(0, winRate - d2Decline).toFixed(1)}%`} />
-        </SliderRow>
-      )}
+      <SliderBlock label="Draft Two WR Decline" value={d2Decline} onChange={setD2Decline} min={0} max={10} step={1} display={`${MINUS}${d2Decline}%`} accentColor="#f97316"
+        leftLabel="0%" midLabel="3% default" rightLabel={`${MINUS}10%`}
+        helpText={`All Draft Two opponents already went 7-x, so they're tougher on average. Effective D2 WR: ${Math.max(0, winRate - d2Decline).toFixed(1)}%`} />
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 10, marginTop: 12 }}>
         <StatCard label="Overall EV" value={signUSD(ev.overallEV)} sub="per entry (gems + cash)" accent={dollarColor} />
@@ -486,58 +511,26 @@ function ArenaQualifierPanel() {
         </Section>
       )}
 
-      <Section title="Expected Value by Number of Entries">
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-              {["Entries", "Cost", "Gem EV", "Cash EV", "Overall EV", `P(Qual ${GEQ}1${TIMES})`].map((h) => (
-                <th key={h} style={{ padding: "6px 4px", textAlign: "right", color: "#6b7084", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {[1, 2, 3, 5, 10].map((n) => {
-              const cost = n * AQ_ENTRY_COST;
-              const ng = n * (ev.d1ExpGems + ev.d1QualProb * ev.d2ExpGems) - cost;
-              const cu = n * ev.d1QualProb * ev.d2ExpUSD;
-              const ov = ng * GEM_USD + cu;
-              const pQ = 1 - Math.pow(1 - ev.d1QualProb, n);
-              return (
-                <tr key={n} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
-                  <td style={{ padding: "8px 4px", textAlign: "right", color: "#e2e4ec" }}>{n}{TIMES}</td>
-                  <td style={{ padding: "8px 4px", textAlign: "right", color: "#8b8fa3" }}>{fmt(cost)}{"g"}</td>
-                  <td style={{ padding: "8px 4px", textAlign: "right", color: ng >= 0 ? "#22c55e" : "#ef4444" }}>{signGems(ng)}{"g"}</td>
-                  <td style={{ padding: "8px 4px", textAlign: "right", color: cu > 0 ? "#22c55e" : "#8b8fa3" }}>{signUSD(cu)}</td>
-                  <td style={{ padding: "8px 4px", textAlign: "right", color: ov >= 0 ? "#22c55e" : "#ef4444", fontWeight: 500 }}>{signUSD(ov)}</td>
-                  <td style={{ padding: "8px 4px", textAlign: "right", color: pQ > 0.5 ? "#22c55e" : pQ > 0.2 ? "#eab308" : "#ef4444" }}>{pct(pQ)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Section>
-
-      <Section title="Overall Dollar EV by Win Rate" subtitle={`Per entry (D1: +${d1Boost}%, D2: ${MINUS}${d2Decline}%)`}>
-        <LineChart points={curve} currentX={winRate} />
+      <Section title="Overall Dollar EV by Win Rate" subtitle={`Per entry (Draft Two: ${MINUS}${d2Decline}%) ${DOT} hover to see exact EV at any win rate`}>
+        <LineChart points={curve} currentX={winRate} xFormat={(wr) => `${wr}%`} yFormat={(v) => signUSD(v)} />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859" }}><span>{"35%"}</span><span>{"75%"}</span></div>
       </Section>
 
-      <SliderRow>
-        <SliderBlock label="Draft Twos Achieved" value={draftTwoTarget} onChange={setDraftTwoTarget} min={0} max={numRuns} step={1} display={`${d2Clamped}`} accentColor="#eab308"
-          helpText={`P(this many or fewer Draft Twos) across ${fmt(numRuns)} runs at ${pct(ev.d1QualProb)}/run.`} />
-        <SliderBlock label="Longest Drought (no D2)" value={droughtLen} onChange={setDroughtLen} min={1} max={numRuns} step={1} display={`${droughtClamped} runs`} accentColor="#ef4444"
-          helpText={`Consecutive runs without a Draft Two. P(no D2)/run = ${pct(pFailD2)}.`} />
-      </SliderRow>
+      <SliderBlock label="Draft Twos Achieved" value={draftTwoTarget} onChange={setDraftTwoTarget} min={0} max={numRuns} step={1} display={`${d2Clamped}`} accentColor="#eab308"
+        helpText={`P(this many or fewer Draft Twos) across ${fmt(numRuns)} runs at ${pct(ev.d1QualProb)}/run.`} />
 
       <Section title="Probability of X or Fewer Draft Twos" subtitle={`Exact binomial CDF ${DOT} ${fmt(numRuns)} runs at ${pct(ev.d1QualProb)} per-run rate`}>
         <StatCard label={`P(Draft Twos ${"\u2264"} ${d2Clamped})`} value={pct(d2Percentile, 2)} sub="percentile of this outcome" accent="#a855f7" />
         <div style={{ marginTop: 14 }}>
-          <LineChart points={d2CurvePts} currentX={d2Clamped} />
+          <LineChart points={d2CurvePts} currentX={d2Clamped} xFormat={(x) => `${x} D2s`} yFormat={(v) => pct(v, 2)} />
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859" }}>
             <span>{"0"}</span><span>{numRuns}</span>
           </div>
         </div>
       </Section>
+
+      <SliderBlock label="Longest Drought (no Draft Two)" value={droughtLen} onChange={setDroughtLen} min={1} max={numRuns} step={1} display={`${droughtClamped} runs`} accentColor="#ef4444"
+        helpText={`Consecutive runs without a Draft Two. P(no D2)/run = ${pct(pFailD2)}.`} />
 
       <Section title="Draft Two Drought Probability" subtitle={`Over ${fmt(numRuns)} runs at ${winRate}% win rate`}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
@@ -551,7 +544,7 @@ function ArenaQualifierPanel() {
             ? <span>{"A "}{droughtClamped}{"-run drought is on the unlucky side \u2014 about "}<span style={{ color: "#e2e4ec" }}>{pct(droughtQ.probability, 1)}</span>{" of "}{fmt(numRuns)}{"-run sessions see one."}</span>
             : <span>{"A "}{droughtClamped}{"-run drought would be quite rare \u2014 only "}<span style={{ color: "#e2e4ec" }}>{pct(droughtQ.probability, 2)}</span>{" of "}{fmt(numRuns)}{"-run sessions see one this long."}</span>}
         </div>
-        <LineChart points={droughtQ.curvePts} currentX={droughtClamped} />
+        <LineChart points={droughtQ.curvePts} currentX={droughtClamped} xFormat={(x) => `${x} runs`} yFormat={(v) => pct(v, 2)} />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859" }}>
           <span>{"1 run"}</span><span>{droughtQ.maxL}{" runs"}</span>
         </div>
@@ -600,6 +593,8 @@ function computeProTourExact(entrants, rounds, cutoff, pMatch) {
       for (let t = 0; t <= remaining; t++) {
         const tp = Tpmf[t];
         if (tp === 0) continue;
+        // (min(t, maxA) + 1) / (t + 1): fair uniform-random share of the tiebreaker
+        // among the (t + 1) players (me + t others) tied on this record.
         innerSum += tp * ((Math.min(t, maxA) + 1) / (t + 1));
       }
       pQualifyGivenK += gp * innerSum;
@@ -622,11 +617,11 @@ function typicalCutoffWins(entrants, rounds, cutoff) {
 
 function ProTourPanel() {
   const [mode, setMode] = useState("game");
-  const [entrants, setEntrants] = useState(853);
+  const [entrants, setEntrants] = useState(1000);
   const [rounds, setRounds] = useState(15);
   const [cutoff, setCutoff] = useState(32);
-  const [gameWinRate, setGameWinRate] = useState(55);
-  const [matchWinRate, setMatchWinRate] = useState(58);
+  const [gameWinRate, setGameWinRate] = useState(50);
+  const [matchWinRate, setMatchWinRate] = useState(50);
 
   const winRate = mode === "game" ? gameWinRate : matchWinRate;
   const setWinRate = mode === "game" ? setGameWinRate : setMatchWinRate;
@@ -642,11 +637,11 @@ function ProTourPanel() {
 
   const curve = useMemo(() => {
     const pts = [];
-    for (let wr = 20; wr <= 86; wr += 2) {
+    for (let wr = 20; wr <= 80; wr += 2) {
       const p = wr / 100;
       const pm = mode === "game" ? bo3MatchWinProb(p) : p;
       const r = computeProTourExact(entrants, rounds, cutoffClamped, pm);
-      pts.push({ wr, x: wr, y: r.probability, prob: r.probability });
+      pts.push({ wr, x: wr, y: r.probability, raw: r.probability });
     }
     return pts;
   }, [entrants, rounds, cutoffClamped, mode]);
@@ -674,13 +669,13 @@ function ProTourPanel() {
       </div>
 
       <SliderBlock label={mode === "game" ? "Your Game Win %" : "Your Match Win %"} value={winRate} onChange={setWinRate}
-        min={20} max={86} step={1} display={`${winRate}%`} accentColor="#a855f7"
+        min={20} max={80} step={1} display={`${winRate}%`} accentColor="#a855f7"
         helpText={mode === "game"
           ? `Converted via best-of-3: p\u00B2(3\u22122p) \u2192 ${pct(pMatch)} chance per match.`
           : "Used directly as your match win probability."} />
 
       <SliderRow>
-        <SliderBlock label="Entrants" value={entrants} onChange={setEntrants} min={16} max={2000} step={1} display={fmt(entrants)} accentColor="#06b6d4" helpText="Total players. Default 853." />
+        <SliderBlock label="Entrants" value={entrants} onChange={setEntrants} min={16} max={2000} step={1} display={fmt(entrants)} accentColor="#06b6d4" helpText="Total players. Default 1,000." />
         <SliderBlock label="Rounds" value={rounds} onChange={setRounds} min={3} max={20} step={1} display={rounds} accentColor="#22c55e" helpText="Swiss rounds before the cut." />
       </SliderRow>
       <SliderBlock label="Qualification Cutoff" value={cutoff} onChange={setCutoff} min={1} max={entrants} step={1} display={`Top ${fmt(cutoffClamped)}`} accentColor="#eab308" helpText="Finish at or above this rank to qualify." />
@@ -695,42 +690,19 @@ function ProTourPanel() {
         <Histogram counts={result.Xpmf} highlightIdx={cutoffWins} />
       </Section>
 
-      <Section title="P(Qualify) vs. Win Rate" subtitle={`${fmt(entrants)} entrants ${DOT} ${rounds} rounds ${DOT} top ${fmt(cutoffClamped)} cut ${DOT} exact, not sampled`}>
-        <LineChart points={curve} currentX={winRate} />
+      <Section title="P(Qualify) vs. Win Rate" subtitle={`${fmt(entrants)} entrants ${DOT} ${rounds} rounds ${DOT} top ${fmt(cutoffClamped)} cut ${DOT} hover for exact values`}>
+        <LineChart points={curve} currentX={winRate} xFormat={(wr) => `${wr}%`} yFormat={(v) => pct(v, 2)} />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859", marginBottom: 14 }}>
           <span>{curve[0].wr}{"%"}</span><span>{curve[curve.length - 1].wr}{"%"}</span>
-        </div>
-        <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 12 }}>
-          <div style={{ fontSize: 10, color: "#555a6e", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>{"Exact values"}</div>
-          <div style={{ maxHeight: 260, overflowY: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0, background: "#0c0d12" }}>
-                  <th style={{ padding: "5px 4px", textAlign: "left", color: "#6b7084", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>{mode === "game" ? "Game Win %" : "Match Win %"}</th>
-                  <th style={{ padding: "5px 4px", textAlign: "right", color: "#6b7084", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>{"P(Qualify)"}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {curve.map((pt) => {
-                  const isCurrent = pt.wr === Math.round(winRate);
-                  return (
-                    <tr key={pt.wr} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)", background: isCurrent ? "rgba(168,85,247,0.08)" : "transparent" }}>
-                      <td style={{ padding: "6px 4px", color: isCurrent ? "#c4a5f7" : "#c5c9d6" }}>{pt.wr}{"%"}{isCurrent && <span style={{ color: "#a855f7", marginLeft: 6, fontSize: 9 }}>{"\u25C0 current"}</span>}</td>
-                      <td style={{ padding: "6px 4px", textAlign: "right", color: pt.prob >= 0.5 ? "#22c55e" : pt.prob >= 0.15 ? "#eab308" : "#ef4444", fontWeight: isCurrent ? 500 : 400 }}>{pct(pt.prob, 2)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         </div>
       </Section>
 
       <Methodology items={[
         { h: "The model:", body: "Your final win count X follows Binomial(rounds, p). Every other entrant's win count Y is treated as Binomial(rounds, 0.5)." },
-        { h: "The computation:", body: "For each win total k, players ahead follow Binomial(entrants\u22121, P(Y>k)), and tied players follow a second binomial, with ties resolved as uniformly random order." },
+        { h: "The computation:", body: "For each win total k, players ahead follow Binomial(entrants\u22121, P(Y>k)), and tied players follow a second binomial." },
+        { h: "Tiebreaks distributed fairly:", body: "When a cutoff falls in the middle of a tied group (e.g. 16 players at 11-4 but only 10 spots remain among them), each tied player's qualification probability is the exact uniform share \u2014 (available spots) / (tied group size) \u2014 since real tiebreakers effectively pick a random order within a tied record." },
         { h: "Game vs. match mode:", body: "Game mode derives match win probability via p\u00B2(3\u22122p). Match mode uses your input directly." },
-        { h: "Not modeled:", body: "Swiss pairing correlations, skill variance among the field, byes, and the real tiebreaker formula." },
+        { h: "Not modeled:", body: "Swiss pairing correlations, skill variance among the field, byes, and the specific (non-uniform) real-world tiebreaker formula \u2014 only its fairness property is assumed." },
       ]} />
     </PanelLayout>
   );
@@ -740,9 +712,9 @@ function ProTourPanel() {
 // TAB 3 — ARENA DIRECT EV
 // ══════════════════════════════════════════════════════════════
 const AD_STRUCTURES = [
-  { id: "A", label: "6,000 Gems", sub: "Entry", entry: 6000, gems: [0, 0, 0, 2700, 5400, 10800, 0, 0], boxes: [0, 0, 0, 0, 0, 0, 1, 2], boxRange: "standard" },
-  { id: "B", label: "8,000 Gems", sub: "Standard Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 0, 0], boxes: [0, 0, 0, 0, 0, 0, 1, 2], boxRange: "standard" },
-  { id: "C", label: "8,000 Gems", sub: "Premium Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 14400, 0], boxes: [0, 0, 0, 0, 0, 0, 0, 1], boxRange: "premium" },
+  { id: "A", label: "6,000 Gems", sub: "Standard Play Box", entry: 6000, gems: [0, 0, 0, 2700, 5400, 10800, 0, 0], boxes: [0, 0, 0, 0, 0, 0, 1, 2], boxRange: "standard" },
+  { id: "B", label: "8,000 Gems", sub: "Premium Play Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 0, 0], boxes: [0, 0, 0, 0, 0, 0, 1, 2], boxRange: "standard" },
+  { id: "C", label: "8,000 Gems", sub: "Collector Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 14400, 0], boxes: [0, 0, 0, 0, 0, 0, 0, 1], boxRange: "premium" },
 ];
 
 function computeDirectEV(winRate, structure, boxValueUSD, taxPct, resalePct) {
@@ -776,11 +748,11 @@ function computeDirectEV(winRate, structure, boxValueUSD, taxPct, resalePct) {
 
 function ArenaDirectPanel() {
   const [structureId, setStructureId] = useState("A");
-  const [winRate, setWinRate] = useState(55);
+  const [winRate, setWinRate] = useState(50);
   const [boxValueStandard, setBoxValueStandard] = useState(150);
-  const [boxValuePremium, setBoxValuePremium] = useState(800);
-  const [taxPct, setTaxPct] = useState(20);
-  const [resalePct, setResalePct] = useState(80);
+  const [boxValuePremium, setBoxValuePremium] = useState(450);
+  const [taxPct, setTaxPct] = useState(22);
+  const [resalePct, setResalePct] = useState(85);
   const [numRuns, setNumRuns] = useState(20);
   const [droughtLen, setDroughtLen] = useState(5);
   const [boxesWonTarget, setBoxesWonTarget] = useState(1);
@@ -798,31 +770,23 @@ function ArenaDirectPanel() {
     const pts = [];
     for (let wr = 30; wr <= 80; wr += 1) {
       const r = computeDirectEV(wr / 100, structure, boxValueUSD, taxPct, resalePct);
-      pts.push({ x: wr, y: r.overallEV });
+      pts.push({ x: wr, raw: r.overallEV });
     }
-    const minV = Math.min(...pts.map((p) => p.y)), maxV = Math.max(...pts.map((p) => p.y));
+    const minV = Math.min(...pts.map((p) => p.raw)), maxV = Math.max(...pts.map((p) => p.raw));
     const range = maxV - minV || 1;
     let zeroCrossWR = null;
     for (let i = 1; i < pts.length; i++) {
-      if (pts[i - 1].y < 0 && pts[i].y >= 0) { zeroCrossWR = pts[i - 1].x + (-pts[i - 1].y / (pts[i].y - pts[i - 1].y)); break; }
+      if (pts[i - 1].raw < 0 && pts[i].raw >= 0) { zeroCrossWR = pts[i - 1].x + (-pts[i - 1].raw / (pts[i].raw - pts[i - 1].raw)); break; }
     }
-    return { normalized: pts.map((p) => ({ x: p.x, y: (p.y - minV) / range })), zeroCrossWR, minV, maxV };
+    return { normalized: pts.map((p) => ({ x: p.x, y: (p.raw - minV) / range, raw: p.raw })), zeroCrossWR };
   }, [structure, boxValueUSD, taxPct, resalePct]);
-
-  const compareAll = useMemo(() => {
-    return AD_STRUCTURES.map((s) => {
-      const bv = s.boxRange === "premium" ? boxValuePremium : boxValueStandard;
-      const r = computeDirectEV(winRate / 100, s, bv, taxPct, resalePct);
-      return { s, r, bv };
-    });
-  }, [winRate, boxValueStandard, boxValuePremium, taxPct, resalePct]);
 
   const drought = useMemo(() => {
     const p = droughtProbability(numRuns, droughtClamped, result.pFail);
     const typical = typicalDroughtLength(numRuns, result.pFail);
     const curvePts = [];
     const maxL = Math.min(numRuns, 40);
-    for (let L = 1; L <= maxL; L++) curvePts.push({ x: L, y: droughtProbability(numRuns, L, result.pFail) });
+    for (let L = 1; L <= maxL; L++) { const v = droughtProbability(numRuns, L, result.pFail); curvePts.push({ x: L, y: v, raw: v }); }
     return { probability: p, typical, curvePts, maxL };
   }, [numRuns, droughtClamped, result.pFail]);
 
@@ -837,7 +801,7 @@ function ArenaDirectPanel() {
 
   const boxesClamped = Math.min(boxesWonTarget, boxesStats.maxPossible);
   const boxesPercentile = boxesStats.cdf[boxesClamped];
-  const boxesCurvePts = useMemo(() => boxesStats.cdf.map((y, x) => ({ x, y })), [boxesStats]);
+  const boxesCurvePts = useMemo(() => boxesStats.cdf.map((y, x) => ({ x, y, raw: y })), [boxesStats]);
 
   const evColor = result.overallEV >= 0 ? "#22c55e" : "#ef4444";
   const totalEV = result.overallEV * numRuns;
@@ -872,10 +836,10 @@ function ArenaDirectPanel() {
       <SliderRow>
         {structure.boxRange === "standard" ? (
           <SliderBlock label="Box Value (USD)" value={boxValueStandard} onChange={setBoxValueStandard} min={50} max={300} step={5} display={`$${fmt(boxValueStandard)}`} accentColor="#06b6d4"
-            helpText="For the 6,000g and 8,000g standard-box structures." />
+            helpText="For the Standard and Premium Play Box structures." />
         ) : (
           <SliderBlock label="Box Value (USD)" value={boxValuePremium} onChange={setBoxValuePremium} min={300} max={2000} step={10} display={`$${fmt(boxValuePremium)}`} accentColor="#06b6d4"
-            helpText="For the premium-box structure (14,400g at 6W, 1 box at 7W)." />
+            helpText="For the Collector Box structure (14,400g at 6W, 1 box at 7W)." />
         )}
         <SliderBlock label="Tax %" value={taxPct} onChange={setTaxPct} min={0} max={50} step={1} display={`${taxPct}%`} accentColor="#f97316"
           helpText="Percentage of a box's face value lost to tax." />
@@ -889,7 +853,7 @@ function ArenaDirectPanel() {
         <StatCard label="Expected Gems" value={signGems(result.netGems)} sub="net gems" accent={result.netGems >= 0 ? "#22c55e" : "#ef4444"} />
         <StatCard label="Expected Boxes" value={result.expBoxes.toFixed(3)} sub={`\u00D7 $${fmt(result.effectiveBoxUSD, 2)} value`} accent="#06b6d4" />
         <StatCard label="P(Any Payout)" value={pct(result.pAnyPayout)} sub={`${GEQ}3 wins`} accent="#eab308" />
-        <StatCard label={`P(7${TIMES}0 Run)`} value={pct(result.p7Win, 2)} sub="max payout tier" accent="#a855f7" />
+        <StatCard label="P(7 Win Run)" value={pct(result.p7Win, 2)} sub="includes 7-0 and 7-1" accent="#a855f7" />
       </div>
 
       <Section title="Payout Breakdown" subtitle={`${structure.label} ${DOT} ${structure.sub} ${DOT} 2 losses or 7 wins ends the run`}>
@@ -905,54 +869,30 @@ function ArenaDirectPanel() {
         })}
       </Section>
 
-      <Section title="Overall EV by Win Rate" subtitle={`${structure.label} ${DOT} ${structure.sub} ${DOT} box $${fmt(boxValueUSD)}, tax ${taxPct}%, resale ${resalePct}%`}>
-        <LineChart points={curve.normalized} currentX={winRate} />
+      <Section title="Overall EV by Win Rate" subtitle={`${structure.label} ${DOT} ${structure.sub} ${DOT} box $${fmt(boxValueUSD)}, tax ${taxPct}%, resale ${resalePct}% ${DOT} hover for exact EV`}>
+        <LineChart points={curve.normalized} currentX={winRate} xFormat={(wr) => `${wr}%`} yFormat={(v) => signUSD(v)} />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859" }}><span>{"30%"}</span><span>{"80%"}</span></div>
         {curve.zeroCrossWR && (
           <div style={{ fontSize: 10, color: "#eab308", marginTop: 8, textAlign: "center" }}>{"Breakeven "}{APPROX}{" "}{curve.zeroCrossWR.toFixed(1)}{"% win rate"}</div>
         )}
       </Section>
 
-      <Section title="Compare All Three Structures" subtitle={`At ${winRate}% win rate, tax ${taxPct}%, resale ${resalePct}%`}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-              {["Structure", "Entry", "Box Value", "Exp. Boxes", "Overall EV"].map((h) => (
-                <th key={h} style={{ padding: "6px 4px", textAlign: h === "Structure" ? "left" : "right", color: "#6b7084", fontWeight: 400, fontSize: 10, textTransform: "uppercase" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {compareAll.map(({ s, r, bv }) => (
-              <tr key={s.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)", background: s.id === structureId ? "rgba(168,85,247,0.08)" : "transparent" }}>
-                <td style={{ padding: "8px 4px", color: s.id === structureId ? "#c4a5f7" : "#c5c9d6" }}>{s.label}<br /><span style={{ fontSize: 9, color: "#555a6e" }}>{s.sub}</span></td>
-                <td style={{ padding: "8px 4px", textAlign: "right", color: "#8b8fa3" }}>{fmt(s.entry)}{"g"}</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", color: "#8b8fa3" }}>{"$"}{fmt(bv)}</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", color: "#c5c9d6" }}>{r.expBoxes.toFixed(3)}</td>
-                <td style={{ padding: "8px 4px", textAlign: "right", color: r.overallEV >= 0 ? "#22c55e" : "#ef4444", fontWeight: s.id === structureId ? 500 : 400 }}>{signUSD(r.overallEV)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Section>
-
-      <SliderRow>
-        <SliderBlock label="Boxes Won" value={boxesWonTarget} onChange={setBoxesWonTarget} min={0} max={boxesStats.maxPossible} step={1} display={`${boxesClamped}`} accentColor="#a855f7"
-          helpText="P(this many or fewer boxes) via exact convolution (0/1/2 boxes per run)." />
-        <SliderBlock label="Longest Drought (no box)" value={droughtLen} onChange={setDroughtLen} min={1} max={numRuns} step={1} display={`${droughtClamped} runs`} accentColor="#ef4444"
-          helpText={`Below ${structure.boxThreshold}${TIMES} wins. P(no box)/run = ${pct(result.pFail)}.`} />
-      </SliderRow>
+      <SliderBlock label="Boxes Won" value={boxesWonTarget} onChange={setBoxesWonTarget} min={0} max={boxesStats.maxPossible} step={1} display={`${boxesClamped}`} accentColor="#a855f7"
+        helpText="P(this many or fewer boxes) via exact convolution (0/1/2 boxes per run)." />
 
       <Section title="Probability of X or Fewer Boxes" subtitle={`Exact compound distribution ${DOT} ${fmt(numRuns)} runs ${DOT} max possible: ${boxesStats.maxPossible} boxes`}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
           <StatCard label={`P(Boxes ${"\u2264"} ${boxesClamped})`} value={pct(boxesPercentile, 2)} sub="percentile of this outcome" accent="#a855f7" />
           <StatCard label="Expected Boxes" value={boxesStats.expected.toFixed(2)} sub={`over ${fmt(numRuns)} runs`} accent="#06b6d4" />
         </div>
-        <LineChart points={boxesCurvePts} currentX={boxesClamped} />
+        <LineChart points={boxesCurvePts} currentX={boxesClamped} xFormat={(x) => `${x} boxes`} yFormat={(v) => pct(v, 2)} />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859" }}>
           <span>{"0"}</span><span>{boxesStats.maxPossible}</span>
         </div>
       </Section>
+
+      <SliderBlock label="Longest Drought (no box)" value={droughtLen} onChange={setDroughtLen} min={1} max={numRuns} step={1} display={`${droughtClamped} runs`} accentColor="#ef4444"
+        helpText={`Below ${structure.boxThreshold}${TIMES} wins. P(no box)/run = ${pct(result.pFail)}.`} />
 
       <Section title="Drought Probability" subtitle={`Over ${fmt(numRuns)} runs at ${winRate}% win rate`}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
@@ -966,7 +906,7 @@ function ArenaDirectPanel() {
             ? <span>{"A "}{droughtClamped}{"-run drought is on the unlucky side \u2014 about "}<span style={{ color: "#e2e4ec" }}>{pct(drought.probability, 1)}</span>{" of "}{fmt(numRuns)}{"-run sessions see one."}</span>
             : <span>{"A "}{droughtClamped}{"-run drought would be quite rare \u2014 only "}<span style={{ color: "#e2e4ec" }}>{pct(drought.probability, 2)}</span>{" of "}{fmt(numRuns)}{"-run sessions see one this long."}</span>}
         </div>
-        <LineChart points={drought.curvePts} currentX={droughtClamped} />
+        <LineChart points={drought.curvePts} currentX={droughtClamped} xFormat={(x) => `${x} runs`} yFormat={(v) => pct(v, 2)} />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859" }}>
           <span>{"1 run"}</span><span>{drought.maxL}{" runs"}</span>
         </div>
@@ -977,7 +917,7 @@ function ArenaDirectPanel() {
         { h: "Tax vs. resale:", body: "Resale% is the share of face value recovered when reselling; tax% is lost separately. Combined additively: max(0, resale% \u2212 tax%)." },
         { h: "Boxes-won math:", body: "Each run yields 0, 1, or 2 boxes with its own probability. The total across N runs is computed via exact convolution, correctly weighting double-box 7-0 finishes." },
         { h: "Drought math:", body: "Exact Markov-chain DP over your consecutive-failure streak." },
-        { h: "Not modeled:", body: "Draft quality/deck variance, and opponent-strength changes as a run progresses." },
+        { h: "Not modeled:", body: "Draft quality/deck variance, and opponent-strength changes as a run progresses. The three structures are mutually exclusive per entry, so they're shown one at a time rather than compared side by side." },
       ]} />
     </PanelLayout>
   );
@@ -1010,7 +950,7 @@ function App() {
         {tab === "direct" && <ArenaDirectPanel />}
 
         <div style={{ textAlign: "center", fontSize: 10, color: "#333644", marginTop: 20, paddingBottom: 20 }}>
-          {"Exact binomial / DP math "}{DOT}{" No randomness anywhere "}{DOT}{" v5"}
+          {"Exact binomial / DP math "}{DOT}{" No randomness anywhere "}{DOT}{" v6"}
         </div>
       </div>
     </div>
