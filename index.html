@@ -40,6 +40,7 @@ const DOT = "\u00B7";
 const TROPHY = "\uD83C\uDFC6";
 const BOX = "\uD83D\uDCE6";
 const PACK = "\uD83C\uDCCF";
+const RECYCLE = "\u21BB";
 const TRI_DOWN = "\u25BE";
 const TRI_RIGHT = "\u25B8";
 
@@ -87,7 +88,6 @@ function binomialPmfArray(n, p) {
 function clamp01(x) { return Math.min(1, Math.max(0, x)); }
 function bo3MatchWinProb(p) { return p * p * (3 - 2 * p); }
 
-// P(at least one streak of >= L consecutive "failures" within N independent trials).
 function droughtProbability(N, L, pFail) {
   if (L <= 0) return 1;
   if (N <= 0) return 0;
@@ -116,8 +116,6 @@ function typicalDroughtLength(N, pFail) {
   return N;
 }
 
-// Exact distribution of TOTAL count over N independent runs, where each run
-// contributes 0, 1, 2, ... units with its own probability (perRunDist[unitCount]).
 function totalCountPmfOverRuns(perRunDist, N) {
   const maxPerRun = perRunDist.length - 1;
   let dp = [1];
@@ -239,7 +237,7 @@ function ProbBar({ prob, label, color, maxProb }) {
   const width = maxProb > 0 ? (prob / maxProb) * 100 : 0;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, fontFamily: MONO, fontSize: 12 }}>
-      <span style={{ width: 80, textAlign: "right", color: "#8b8fa3", flexShrink: 0, fontSize: 10 }}>{label}</span>
+      <span style={{ width: 92, textAlign: "right", color: "#8b8fa3", flexShrink: 0, fontSize: 10 }}>{label}</span>
       <div style={{ flex: 1, height: 18, background: "rgba(255,255,255,0.03)", borderRadius: 3, overflow: "hidden" }}>
         <div style={{ width: `${width}%`, height: "100%", background: color, borderRadius: 3, transition: "width 0.5s cubic-bezier(0.16, 1, 0.3, 1)", minWidth: prob > 0 ? 2 : 0 }} />
       </div>
@@ -248,8 +246,6 @@ function ProbBar({ prob, label, color, maxProb }) {
   );
 }
 
-// Hoverable line chart. `points` must be [{x, y, raw}] where y is the 0..1 draw
-// coordinate and raw is the real-world value to show in the tooltip.
 function LineChart({ points, height = 150, currentX, xFormat, yFormat }) {
   const [hover, setHover] = useState(null);
   const w = 100, h = 100;
@@ -360,7 +356,7 @@ function Methodology({ title = "Notes & Methodology", items }) {
 const AQ_ENTRY_COST = 5000;
 const AQ_D1R = [0, 0, 0, 0, 1000, 2500, 5000, 5500];
 const AQ_D2G = [0, 6500, 7500, 8500, 10000, 0, 0];
-const AQ_D2U_BASE = [0, 0, 0, 0, 0, 1000, 2000]; // cash prize BEFORE tax, in USD
+const AQ_D2U_BASE = [0, 0, 0, 0, 0, 1000, 2000];
 const AQ_D2Q = [false, false, false, false, false, true, true];
 
 function computeQualifierEV(baseWR, d2Decline, taxPct) {
@@ -707,7 +703,7 @@ function ProTourPanel() {
       <Methodology items={[
         { h: "The model:", body: "Your final win count X follows Binomial(rounds, p). Every other entrant's win count Y is treated as Binomial(rounds, 0.5)." },
         { h: "The computation:", body: "For each win total k, players ahead follow Binomial(entrants\u22121, P(Y>k)), and tied players follow a second binomial." },
-        { h: "Tiebreaks distributed fairly:", body: "When a cutoff falls in the middle of a tied group (e.g. 16 players at 11-4 but only some spots remain among them), each tied player's qualification probability is the exact uniform share \u2014 (available spots) / (tied group size) \u2014 since real tiebreakers effectively pick a random order within a tied record." },
+        { h: "Tiebreaks distributed fairly:", body: "When a cutoff falls in the middle of a tied group, each tied player's qualification probability is the exact uniform share \u2014 (available spots) / (tied group size)." },
         { h: "Game vs. match mode:", body: "Game mode derives match win probability via p\u00B2(3\u22122p). Match mode uses your input directly." },
         { h: "Not modeled:", body: "Swiss pairing correlations, skill variance among the field, byes, and the specific (non-uniform) real-world tiebreaker formula \u2014 only its fairness property is assumed." },
       ]} />
@@ -932,10 +928,231 @@ function ArenaDirectPanel() {
       <Methodology items={[
         { h: "Structure math:", body: "Same bracket-completion DP as Draft One in the Arena Qualifier tab, using your Bo1 game win rate directly." },
         { h: "Tax vs. resale:", body: "Resale% is the share of face value recovered when reselling; tax% is lost separately. Combined additively: max(0, resale% \u2212 tax%)." },
-        { h: "Packs:", body: "All structures grant 8/16/24 packs at 3W/4W/5W; the Collector Box also grants 32 packs at 6W. Each pack's value is set in gems via the slider and added directly to that tier's gem reward before any dollar conversion \u2014 a small EV boost on top of the base gem payouts." },
+        { h: "Packs:", body: "All structures grant 8/16/24 packs at 3W/4W/5W; the Collector Box also grants 32 packs at 6W. Each pack's value is set in gems via the slider and added directly to that tier's gem reward before any dollar conversion." },
         { h: "Boxes-won math:", body: "Each run yields 0, 1, or 2 boxes with its own probability. The total across N runs is computed via exact convolution, correctly weighting double-box 7-0 finishes." },
         { h: "Drought math:", body: "Exact Markov-chain DP over your consecutive-failure streak." },
         { h: "Not modeled:", body: "Draft quality/deck variance, and opponent-strength changes as a run progresses. The three structures are mutually exclusive per entry, so they're shown one at a time rather than compared side by side." },
+      ]} />
+    </PanelLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// TAB 4 — ARENA CHAMPIONSHIP QUALIFIER
+// ══════════════════════════════════════════════════════════════
+function day2Outcome(day2P) {
+  const pRequalD1 = day2P[1] + day2P[2];
+  const pRequalD2 = day2P[3];
+  const pChampionship = day2P[4];
+  const pNothing = day2P[0];
+  return { pRequalD1, pRequalD2, pChampionship, pNothing };
+}
+
+function computeChampionshipCombined(pDay1, pDay2) {
+  const day1P = bracketProbs(pDay1, 7, 3);
+  const pDay2Reached = day1P[7];
+  const day2P = bracketProbs(pDay2, 4, 2);
+  const out = day2Outcome(day2P);
+  return {
+    day1P, day2P, pDay2Reached,
+    pRequalD1: pDay2Reached * out.pRequalD1,
+    pRequalD2: pDay2Reached * out.pRequalD2,
+    pChampionship: pDay2Reached * out.pChampionship,
+  };
+}
+
+function computeChampionshipDay2Only(pDay2) {
+  const day2P = bracketProbs(pDay2, 4, 2);
+  const out = day2Outcome(day2P);
+  return { day2P, ...out };
+}
+
+function ChampBreakdown({ title, details, maxW, isDay2 }) {
+  const maxProb = Math.max(...details.map((d) => d.prob));
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <h3 style={{ fontFamily: SERIF, fontSize: 16, color: "#e2e4ec", marginBottom: 8, fontWeight: 400, marginTop: 0 }}>{title}</h3>
+      {details.map((d) => {
+        let color = "#4b5065";
+        let label = `${d.wins}W ${ARROW} `;
+        if (isDay2) {
+          if (d.wins === maxW) { color = "#a855f7"; label += `${TROPHY} Championship`; }
+          else if (d.wins === maxW - 1) { color = "#06b6d4"; label += `${RECYCLE} Requal D2`; }
+          else if (d.wins >= 1) { color = "#eab308"; label += `${RECYCLE} Requal D1`; }
+          else { color = "#4b5065"; label += "Eliminated"; }
+        } else {
+          if (d.wins === maxW) { color = "#22c55e"; label += "Advance to Day 2"; }
+          else { color = "#4b5065"; label += "Eliminated"; }
+        }
+        return <ProbBar key={d.wins} prob={d.prob} label={label} color={color} maxProb={maxProb} />;
+      })}
+    </div>
+  );
+}
+
+function ArenaChampionshipPanel() {
+  const [subMode, setSubMode] = useState("combined");
+
+  const [day1Mode, setDay1Mode] = useState("game");
+  const [day1GameWR, setDay1GameWR] = useState(50);
+  const [day1MatchWR, setDay1MatchWR] = useState(50);
+  const [day2Decline, setDay2Decline] = useState(5);
+
+  const [d2Mode, setD2Mode] = useState("game");
+  const [d2GameWR, setD2GameWR] = useState(50);
+  const [d2MatchWR, setD2MatchWR] = useState(50);
+
+  const day1WinRate = day1Mode === "game" ? day1GameWR : day1MatchWR;
+  const setDay1WinRate = day1Mode === "game" ? setDay1GameWR : setDay1MatchWR;
+  const pDay1Match = useMemo(() => {
+    const p = day1WinRate / 100;
+    return day1Mode === "game" ? bo3MatchWinProb(p) : p;
+  }, [day1Mode, day1WinRate]);
+  const pDay2Match = useMemo(() => clamp01(pDay1Match - day2Decline / 100), [pDay1Match, day2Decline]);
+
+  const combined = useMemo(() => computeChampionshipCombined(pDay1Match, pDay2Match), [pDay1Match, pDay2Match]);
+
+  const combinedCurve = useMemo(() => {
+    const pts = [];
+    for (let wr = 20; wr <= 80; wr += 1) {
+      const p = wr / 100;
+      const pm1 = day1Mode === "game" ? bo3MatchWinProb(p) : p;
+      const pm2 = clamp01(pm1 - day2Decline / 100);
+      const r = computeChampionshipCombined(pm1, pm2);
+      pts.push({ wr, x: wr, y: r.pChampionship, raw: r.pChampionship });
+    }
+    return pts;
+  }, [day1Mode, day2Decline]);
+
+  const d2WinRate = d2Mode === "game" ? d2GameWR : d2MatchWR;
+  const setD2WinRate = d2Mode === "game" ? setD2GameWR : setD2MatchWR;
+  const pD2Match = useMemo(() => {
+    const p = d2WinRate / 100;
+    return d2Mode === "game" ? bo3MatchWinProb(p) : p;
+  }, [d2Mode, d2WinRate]);
+
+  const day2Only = useMemo(() => computeChampionshipDay2Only(pD2Match), [pD2Match]);
+
+  const day2OnlyCurve = useMemo(() => {
+    const pts = [];
+    for (let wr = 20; wr <= 80; wr += 1) {
+      const p = wr / 100;
+      const pm = d2Mode === "game" ? bo3MatchWinProb(p) : p;
+      const r = computeChampionshipDay2Only(pm);
+      pts.push({ wr, x: wr, y: r.pChampionship, raw: r.pChampionship });
+    }
+    return pts;
+  }, [d2Mode]);
+
+  const d1Details = combined.day1P.map((prob, wins) => ({ wins, prob }));
+  const d2Details = combined.day2P.map((prob, wins) => ({ wins, prob }));
+  const d2OnlyDetails = day2Only.day2P.map((prob, wins) => ({ wins, prob }));
+
+  const sidebar = (
+    <Sidebar title="Live Summary">
+      {subMode === "combined" ? (
+        <>
+          <SidebarStat big label="P(Championship)" value={pct(combined.pChampionship, 2)} sub="from Day 1 entry" accent="#a855f7" />
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", margin: "4px 0 14px" }} />
+          <SidebarStat label="P(Reach Day 2)" value={pct(combined.pDay2Reached, 2)} accent="#06b6d4" />
+          <SidebarStat label="P(Requal Day 1)" value={pct(combined.pRequalD1, 2)} sub="next month" accent="#eab308" />
+          <SidebarStat label="P(Requal Day 2)" value={pct(combined.pRequalD2, 2)} sub="next month" accent="#22c55e" />
+        </>
+      ) : (
+        <>
+          <SidebarStat big label="P(Championship)" value={pct(day2Only.pChampionship, 2)} sub="from Day 2 entry" accent="#a855f7" />
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", margin: "4px 0 14px" }} />
+          <SidebarStat label="P(Requal Day 1)" value={pct(day2Only.pRequalD1, 2)} sub="next month" accent="#eab308" />
+          <SidebarStat label="P(Requal Day 2)" value={pct(day2Only.pRequalD2, 2)} sub="next month" accent="#22c55e" />
+          <SidebarStat label="P(Eliminated)" value={pct(day2Only.pNothing, 2)} accent="#ef4444" />
+        </>
+      )}
+    </Sidebar>
+  );
+
+  return (
+    <PanelLayout sidebar={sidebar}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <TabButton active={subMode === "combined"} onClick={() => setSubMode("combined")}>{"Combined (Day 1 \u2192 Day 2)"}</TabButton>
+        <TabButton active={subMode === "day2only"} onClick={() => setSubMode("day2only")}>{"Day 2 Only"}</TabButton>
+      </div>
+
+      {subMode === "combined" ? (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            <TabButton active={day1Mode === "game"} onClick={() => setDay1Mode("game")} small>{"By Game Win %"}</TabButton>
+            <TabButton active={day1Mode === "match"} onClick={() => setDay1Mode("match")} small>{"By Match Win %"}</TabButton>
+          </div>
+
+          <SliderBlock label={day1Mode === "game" ? "Day 1 Game Win % (Bo3)" : "Day 1 Match Win % (Bo3)"} value={day1WinRate} onChange={setDay1WinRate}
+            min={20} max={80} step={1} display={`${day1WinRate}%`} accentColor="#a855f7"
+            helpText={day1Mode === "game"
+              ? `Converted via best-of-3: p\u00B2(3\u22122p) \u2192 ${pct(pDay1Match)} chance per match.`
+              : "Used directly as your Day 1 match win probability."} />
+
+          <SliderBlock label="Day 2 WR Decline" value={day2Decline} onChange={setDay2Decline} min={0} max={20} step={1} display={`${MINUS}${day2Decline}%`} accentColor="#f97316"
+            leftLabel="0%" midLabel="5% default" rightLabel={`${MINUS}20%`}
+            helpText={`Day 2 opponents already made Day 1, so they're tougher on average. Effective Day 2 match WR: ${pct(pDay2Match)}.`} />
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 18, marginTop: 12 }}>
+            <StatCard label="P(Reach Day 2)" value={pct(combined.pDay2Reached, 2)} sub="7W before 3L on Day 1" accent="#06b6d4" />
+            <StatCard label="P(Requalify Day 1)" value={pct(combined.pRequalD1, 2)} sub="Day 2 ends 1W or 2W" accent="#eab308" />
+            <StatCard label="P(Requalify Day 2)" value={pct(combined.pRequalD2, 2)} sub="Day 2 ends 3W" accent="#22c55e" />
+            <StatCard label="P(Championship)" value={pct(combined.pChampionship, 2)} sub="Day 2 ends 4W" accent="#a855f7" />
+          </div>
+
+          <Section title="Full Probability Breakdown">
+            <ChampBreakdown title={`Day 1 (7W before 3L) ${DASH} match WR: ${pct(pDay1Match)}`} details={d1Details} maxW={7} isDay2={false} />
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", margin: "14px 0" }} />
+            <ChampBreakdown title={`Day 2 (4W before 2L) ${DASH} match WR: ${pct(pDay2Match)} (conditional on reaching Day 2)`} details={d2Details} maxW={4} isDay2={true} />
+          </Section>
+
+          <Section title="P(Championship) vs. Day 1 Win Rate" subtitle={`Day 2 decline fixed at ${MINUS}${day2Decline}% ${DOT} hover for exact values at any 1% increment`}>
+            <LineChart points={combinedCurve} currentX={day1WinRate} xFormat={(wr) => `${wr}%`} yFormat={(v) => pct(v, 2)} />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859" }}>
+              <span>{combinedCurve[0].wr}{"%"}</span><span>{combinedCurve[combinedCurve.length - 1].wr}{"%"}</span>
+            </div>
+          </Section>
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            <TabButton active={d2Mode === "game"} onClick={() => setD2Mode("game")} small>{"By Game Win %"}</TabButton>
+            <TabButton active={d2Mode === "match"} onClick={() => setD2Mode("match")} small>{"By Match Win %"}</TabButton>
+          </div>
+
+          <SliderBlock label={d2Mode === "game" ? "Day 2 Game Win % (Bo3)" : "Day 2 Match Win % (Bo3)"} value={d2WinRate} onChange={setD2WinRate}
+            min={20} max={80} step={1} display={`${d2WinRate}%`} accentColor="#a855f7"
+            helpText={d2Mode === "game"
+              ? `For players entering directly via requalification. Converted via best-of-3: p\u00B2(3\u22122p) \u2192 ${pct(pD2Match)} chance per match.`
+              : "Used directly as your Day 2 match win probability, for players entering directly via requalification."} />
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 18, marginTop: 12 }}>
+            <StatCard label="P(Requalify Day 1)" value={pct(day2Only.pRequalD1, 2)} sub="ends 1W or 2W" accent="#eab308" />
+            <StatCard label="P(Requalify Day 2)" value={pct(day2Only.pRequalD2, 2)} sub="ends 3W" accent="#22c55e" />
+            <StatCard label="P(Championship)" value={pct(day2Only.pChampionship, 2)} sub="ends 4W" accent="#a855f7" />
+            <StatCard label="P(Eliminated)" value={pct(day2Only.pNothing, 2)} sub="ends 0W" accent="#ef4444" />
+          </div>
+
+          <Section title="Full Probability Breakdown">
+            <ChampBreakdown title={`Day 2 (4W before 2L) ${DASH} match WR: ${pct(pD2Match)}`} details={d2OnlyDetails} maxW={4} isDay2={true} />
+          </Section>
+
+          <Section title="P(Championship) vs. Day 2 Win Rate" subtitle="Hover for exact values at any 1% increment">
+            <LineChart points={day2OnlyCurve} currentX={d2WinRate} xFormat={(wr) => `${wr}%`} yFormat={(v) => pct(v, 2)} />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#444859" }}>
+              <span>{day2OnlyCurve[0].wr}{"%"}</span><span>{day2OnlyCurve[day2OnlyCurve.length - 1].wr}{"%"}</span>
+            </div>
+          </Section>
+        </>
+      )}
+
+      <Methodology items={[
+        { h: "The structure:", body: "Day 1 is best-of-3, first to 7 wins before 3 losses. Day 2 is best-of-3, first to 4 wins before 2 losses. Both are computed exactly via the same bracket-completion DP used elsewhere in this toolkit." },
+        { h: "Requalification:", body: "A Day 2 run ending at 1 or 2 wins requalifies you for next month's Day 1. Ending at exactly 3 wins requalifies you for next month's Day 2 directly. Ending at 4 wins qualifies you for the Championship itself. Ending at 0 wins (2 straight losses) earns nothing." },
+        { h: "Day 2 WR decline:", body: "In combined mode, Day 2 opponents already survived Day 1, so they're assumed tougher than your Day 1 average \u2014 adjustable via the decline slider, applied at the match-win-rate level." },
+        { h: "Game vs. match mode:", body: "Both Day 1 and Day 2 (and the Day 2-only mode) let you enter either your underlying Bo1 game win rate (converted via p\u00B2(3\u22122p)) or your Bo3 match win rate directly." },
+        { h: "Not modeled:", body: "Opponent strength scaling within a single day's bracket, and any value placed on requalification itself beyond the probability of reaching it." },
       ]} />
     </PanelLayout>
   );
@@ -956,19 +1173,21 @@ function App() {
             <div style={{ fontSize: 9, letterSpacing: 3, color: "#555a6e", textTransform: "uppercase", marginBottom: 4 }}>{"Exact Math "}{DOT}{" No Simulation"}</div>
             <h1 style={{ fontFamily: SERIF, fontSize: 26, color: "#e2e4ec", fontWeight: 400, margin: 0, lineHeight: 1.1 }}>{"MTG Arena EV Toolkit"}</h1>
           </div>
-          <div style={{ display: "flex", gap: 8, minWidth: 300 }}>
-            <TabButton active={tab === "qualifier"} onClick={() => setTab("qualifier")}>{"Arena Qualifier"}</TabButton>
-            <TabButton active={tab === "protour"} onClick={() => setTab("protour")}>{"Pro Tour Qualifier"}</TabButton>
-            <TabButton active={tab === "direct"} onClick={() => setTab("direct")}>{"Arena Direct"}</TabButton>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 300 }}>
+            <TabButton active={tab === "qualifier"} onClick={() => setTab("qualifier")} small>{"Arena Qualifier"}</TabButton>
+            <TabButton active={tab === "protour"} onClick={() => setTab("protour")} small>{"Pro Tour Qualifier"}</TabButton>
+            <TabButton active={tab === "direct"} onClick={() => setTab("direct")} small>{"Arena Direct"}</TabButton>
+            <TabButton active={tab === "championship"} onClick={() => setTab("championship")} small>{"Championship Qualifier"}</TabButton>
           </div>
         </div>
 
         {tab === "qualifier" && <ArenaQualifierPanel />}
         {tab === "protour" && <ProTourPanel />}
         {tab === "direct" && <ArenaDirectPanel />}
+        {tab === "championship" && <ArenaChampionshipPanel />}
 
         <div style={{ textAlign: "center", fontSize: 10, color: "#333644", marginTop: 20, paddingBottom: 20 }}>
-          {"Exact binomial / DP math "}{DOT}{" No randomness anywhere "}{DOT}{" v7"}
+          {"Exact binomial / DP math "}{DOT}{" No randomness anywhere "}{DOT}{" v8"}
         </div>
       </div>
     </div>
