@@ -351,7 +351,7 @@ function Methodology({ title = "Notes & Methodology", items }) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// TAB 1 — ARENA QUALIFIER
+// TAB 1 — ARENA limited championship QUALIFIER
 // ══════════════════════════════════════════════════════════════
 const AQ_ENTRY_COST = 5000;
 const AQ_D1R = [0, 0, 0, 0, 1000, 2500, 5000, 5500];
@@ -1174,10 +1174,10 @@ function App() {
             <h1 style={{ fontFamily: SERIF, fontSize: 26, color: "#e2e4ec", fontWeight: 400, margin: 0, lineHeight: 1.1 }}>{"MTG Arena EV Toolkit"}</h1>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 300 }}>
-            <TabButton active={tab === "qualifier"} onClick={() => setTab("qualifier")} small>{"Arena Qualifier"}</TabButton>
+            <TabButton active={tab === "qualifier"} onClick={() => setTab("qualifier")} small>{"Arena Limited Championship Qualifier"}</TabButton>
             <TabButton active={tab === "protour"} onClick={() => setTab("protour")} small>{"Pro Tour Qualifier"}</TabButton>
             <TabButton active={tab === "direct"} onClick={() => setTab("direct")} small>{"Arena Direct"}</TabButton>
-            <TabButton active={tab === "championship"} onClick={() => setTab("championship")} small>{"Championship Qualifier"}</TabButton>
+            <TabButton active={tab === "championship"} onClick={() => setTab("championship")} small>{"Arena Championship Qualifier"}</TabButton>
           </div>
         </div>
 
