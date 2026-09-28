@@ -88,6 +88,7 @@ function binomialPmfArray(n, p) {
 function clamp01(x) { return Math.min(1, Math.max(0, x)); }
 function bo3MatchWinProb(p) { return p * p * (3 - 2 * p); }
 
+// P(at least one streak of >= L consecutive "failures" within N independent trials).
 function droughtProbability(N, L, pFail) {
   if (L <= 0) return 1;
   if (N <= 0) return 0;
@@ -116,6 +117,8 @@ function typicalDroughtLength(N, pFail) {
   return N;
 }
 
+// Exact distribution of TOTAL count over N independent runs, where each run
+// contributes 0, 1, 2, ... units with its own probability (perRunDist[unitCount]).
 function totalCountPmfOverRuns(perRunDist, N) {
   const maxPerRun = perRunDist.length - 1;
   let dp = [1];
@@ -246,6 +249,8 @@ function ProbBar({ prob, label, color, maxProb }) {
   );
 }
 
+// Hoverable line chart. `points` must be [{x, y, raw}] where y is the 0..1 draw
+// coordinate and raw is the real-world value to show in the tooltip.
 function LineChart({ points, height = 150, currentX, xFormat, yFormat }) {
   const [hover, setHover] = useState(null);
   const w = 100, h = 100;
@@ -351,12 +356,12 @@ function Methodology({ title = "Notes & Methodology", items }) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// TAB 1 — ARENA limited championship QUALIFIER
+// ARENA LIMITED CHAMPIONSHIP QUALIFIER
 // ══════════════════════════════════════════════════════════════
 const AQ_ENTRY_COST = 5000;
 const AQ_D1R = [0, 0, 0, 0, 1000, 2500, 5000, 5500];
 const AQ_D2G = [0, 6500, 7500, 8500, 10000, 0, 0];
-const AQ_D2U_BASE = [0, 0, 0, 0, 0, 1000, 2000];
+const AQ_D2U_BASE = [0, 0, 0, 0, 0, 1000, 2000]; // cash prize BEFORE tax, in USD
 const AQ_D2Q = [false, false, false, false, false, true, true];
 
 function computeQualifierEV(baseWR, d2Decline, taxPct) {
@@ -442,7 +447,6 @@ function ArenaQualifierPanel() {
   const d2Percentile = d2Cdf[d2Clamped];
   const d2CurvePts = useMemo(() => d2Cdf.map((y, x) => ({ x, y, raw: y })), [d2Cdf]);
 
-  const totalCostGems = numRuns * AQ_ENTRY_COST;
   const totalGemEV = ev.netGems * numRuns;
   const totalCashEV = ev.cashEV * numRuns;
   const totalOverallEV = ev.overallEV * numRuns;
@@ -567,7 +571,7 @@ function ArenaQualifierPanel() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// TAB 2 — PRO TOUR QUALIFIER
+// PRO TOUR QUALIFIER
 // ══════════════════════════════════════════════════════════════
 function computeProTourExact(entrants, rounds, cutoff, pMatch) {
   const m = entrants - 1;
@@ -712,12 +716,13 @@ function ProTourPanel() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// TAB 3 — ARENA DIRECT EV
+// ARENA DIRECT EV
 // ══════════════════════════════════════════════════════════════
 const AD_STRUCTURES = [
   { id: "A", label: "6,000 Gems", sub: "Standard Play Box", entry: 6000, gems: [0, 0, 0, 2700, 5400, 10800, 0, 0], boxes: [0, 0, 0, 0, 0, 0, 1, 2], packs: [0, 0, 0, 8, 16, 24, 0, 0], boxRange: "standard" },
   { id: "B", label: "8,000 Gems", sub: "Premium Play Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 0, 0], boxes: [0, 0, 0, 0, 0, 0, 1, 2], packs: [0, 0, 0, 8, 16, 24, 0, 0], boxRange: "standard" },
-  { id: "C", label: "8,000 Gems", sub: "Collector Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 14400, 0], boxes: [0, 0, 0, 0, 0, 0, 0, 1], packs: [0, 0, 0, 8, 16, 24, 32, 0], boxRange: "premium" },
+  { id: "C", label: "6,000 Gems", sub: "Standard Collector Box", entry: 6000, gems: [0, 0, 0, 2700, 5400, 10800, 10800, 0], boxes: [0, 0, 0, 0, 0, 0, 0, 1], packs: [0, 0, 0, 8, 16, 24, 32, 0], boxRange: "premium" },
+  { id: "D", label: "8,000 Gems", sub: "Premium Collector Box", entry: 8000, gems: [0, 0, 0, 3600, 7200, 10800, 14400, 0], boxes: [0, 0, 0, 0, 0, 0, 0, 1], packs: [0, 0, 0, 8, 16, 24, 32, 0], boxRange: "premium" },
 ];
 
 function computeDirectEV(winRate, structure, boxValueUSD, taxPct, resalePct, packGemValue) {
@@ -829,7 +834,7 @@ function ArenaDirectPanel() {
 
   return (
     <PanelLayout sidebar={sidebar}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
         {AD_STRUCTURES.map((s) => (
           <TabButton key={s.id} active={structureId === s.id} onClick={() => setStructureId(s.id)} small>
             {s.label}<br /><span style={{ fontSize: 9, opacity: 0.7 }}>{s.sub}</span>
@@ -846,7 +851,7 @@ function ArenaDirectPanel() {
             helpText="For the Standard and Premium Play Box structures." />
         ) : (
           <SliderBlock label="Box Value (USD)" value={boxValuePremium} onChange={setBoxValuePremium} min={300} max={2000} step={10} display={`$${fmt(boxValuePremium)}`} accentColor="#06b6d4"
-            helpText="For the Collector Box structure (14,400g at 6W, 1 box at 7W)." />
+            helpText="Shared by the Standard and Premium Collector Box structures." />
         )}
         <SliderBlock label="Tax %" value={taxPct} onChange={setTaxPct} min={0} max={50} step={1} display={`${taxPct}%`} accentColor="#f97316"
           helpText="Percentage of a box's face value lost to tax." />
@@ -856,7 +861,7 @@ function ArenaDirectPanel() {
         <SliderBlock label="Resale %" value={resalePct} onChange={setResalePct} min={50} max={100} step={1} display={`${resalePct}%`} accentColor="#eab308"
           helpText={`% of face value kept when reselling. Combines additively with tax: max(0, resale% ${MINUS} tax%) = ${pct(result.multiplier)} \u2192 $${fmt(result.effectiveBoxUSD, 2)} per box.`} />
         <SliderBlock label="Pack Value (gems/pack)" value={packGemValue} onChange={setPackGemValue} min={0} max={40} step={1} display={`${packGemValue}g`} accentColor="#22c55e"
-          helpText={`Every structure grants packs alongside gems at 3W/4W/5W (8/16/24 packs); Collector Box also grants 32 packs at 6W. Each pack is worth this many gems, added directly to the gem reward at that tier.`} />
+          helpText={`Every structure grants 8/16/24 packs at 3W/4W/5W; the Collector Box structures also grant 32 packs at 6W. Each pack is worth this many gems, added directly to the gem reward at that tier.`} />
       </SliderRow>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 18, marginTop: 16 }}>
@@ -891,7 +896,7 @@ function ArenaDirectPanel() {
       </Section>
 
       <SliderBlock label="Boxes Won" value={boxesWonTarget} onChange={setBoxesWonTarget} min={0} max={boxesStats.maxPossible} step={1} display={`${boxesClamped}`} accentColor="#a855f7"
-        helpText="P(this many or fewer boxes) via exact convolution (0/1/2 boxes per run)." />
+        helpText="P(this many or fewer boxes) via exact convolution of each run's box outcome." />
 
       <Section title="Probability of X or Fewer Boxes" subtitle={`Exact compound distribution ${DOT} ${fmt(numRuns)} runs ${DOT} max possible: ${boxesStats.maxPossible} boxes`}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
@@ -926,20 +931,24 @@ function ArenaDirectPanel() {
       </Section>
 
       <Methodology items={[
-        { h: "Structure math:", body: "Same bracket-completion DP as Draft One in the Arena Qualifier tab, using your Bo1 game win rate directly." },
+        { h: "Structure math:", body: "Same bracket-completion DP as Draft One in the Arena Limited Championship Qualifier tab, using your Bo1 game win rate directly." },
         { h: "Tax vs. resale:", body: "Resale% is the share of face value recovered when reselling; tax% is lost separately. Combined additively: max(0, resale% \u2212 tax%)." },
-        { h: "Packs:", body: "All structures grant 8/16/24 packs at 3W/4W/5W; the Collector Box also grants 32 packs at 6W. Each pack's value is set in gems via the slider and added directly to that tier's gem reward before any dollar conversion." },
-        { h: "Boxes-won math:", body: "Each run yields 0, 1, or 2 boxes with its own probability. The total across N runs is computed via exact convolution, correctly weighting double-box 7-0 finishes." },
+        { h: "Packs:", body: "All structures grant 8/16/24 packs at 3W/4W/5W; both Collector Box structures also grant 32 packs at 6W. Each pack's value is set in gems via the slider and added directly to that tier's gem reward before any dollar conversion." },
+        { h: "Standard Collector Box:", body: "Same 6,000-gem entry and 3W/4W/5W payouts as the Standard Play Box, but 6 wins pays 10,800 gems + 32 packs (instead of a box) and 7 wins pays a single box. Since a run can earn at most one box, the boxes-won distribution is capped at 1 per run." },
+        { h: "Boxes-won math:", body: "Each run yields 0, 1, or 2 boxes (Play Box structures) or 0 or 1 boxes (Collector Box structures) with its own probability. The total across N runs is computed via exact convolution." },
         { h: "Drought math:", body: "Exact Markov-chain DP over your consecutive-failure streak." },
-        { h: "Not modeled:", body: "Draft quality/deck variance, and opponent-strength changes as a run progresses. The three structures are mutually exclusive per entry, so they're shown one at a time rather than compared side by side." },
+        { h: "Not modeled:", body: "Draft quality/deck variance, and opponent-strength changes as a run progresses. The four structures are mutually exclusive per entry, so they're shown one at a time rather than compared side by side." },
       ]} />
     </PanelLayout>
   );
 }
 
 // ══════════════════════════════════════════════════════════════
-// TAB 4 — ARENA CHAMPIONSHIP QUALIFIER
+// ARENA CHAMPIONSHIP QUALIFIER
 // ══════════════════════════════════════════════════════════════
+// Day 1: Bo3, first to 7 wins before 3 losses.
+// Day 2: Bo3, first to 4 wins before 2 losses.
+// Day 2 result -> outcome: 0W nothing, 1-2W requalify next Day 1, 3W requalify next Day 2, 4W Championship.
 function day2Outcome(day2P) {
   const pRequalD1 = day2P[1] + day2P[2];
   const pRequalD2 = day2P[3];
@@ -991,13 +1000,15 @@ function ChampBreakdown({ title, details, maxW, isDay2 }) {
 }
 
 function ArenaChampionshipPanel() {
-  const [subMode, setSubMode] = useState("combined");
+  const [subMode, setSubMode] = useState("combined"); // 'combined' | 'day2only'
 
+  // Combined mode state
   const [day1Mode, setDay1Mode] = useState("game");
   const [day1GameWR, setDay1GameWR] = useState(50);
   const [day1MatchWR, setDay1MatchWR] = useState(50);
   const [day2Decline, setDay2Decline] = useState(5);
 
+  // Day 2 only mode state
   const [d2Mode, setD2Mode] = useState("game");
   const [d2GameWR, setD2GameWR] = useState(50);
   const [d2MatchWR, setD2MatchWR] = useState(50);
@@ -1162,7 +1173,7 @@ function ArenaChampionshipPanel() {
 // APP SHELL
 // ══════════════════════════════════════════════════════════════
 function App() {
-  const [tab, setTab] = useState("qualifier");
+  const [tab, setTab] = useState("direct");
 
   return (
     <div style={{ minHeight: "100vh", background: "#0c0d12", color: "#c5c9d6", padding: "22px 20px", fontFamily: MONO }}>
@@ -1173,21 +1184,21 @@ function App() {
             <div style={{ fontSize: 9, letterSpacing: 3, color: "#555a6e", textTransform: "uppercase", marginBottom: 4 }}>{"Exact Math "}{DOT}{" No Simulation"}</div>
             <h1 style={{ fontFamily: SERIF, fontSize: 26, color: "#e2e4ec", fontWeight: 400, margin: 0, lineHeight: 1.1 }}>{"MTG Arena EV Toolkit"}</h1>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 300 }}>
-            <TabButton active={tab === "qualifier"} onClick={() => setTab("qualifier")} small>{"Arena Limited Championship Qualifier"}</TabButton>
-            <TabButton active={tab === "protour"} onClick={() => setTab("protour")} small>{"Pro Tour Qualifier"}</TabButton>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, flex: "1 1 560px", justifyContent: "flex-end" }}>
             <TabButton active={tab === "direct"} onClick={() => setTab("direct")} small>{"Arena Direct"}</TabButton>
+            <TabButton active={tab === "qualifier"} onClick={() => setTab("qualifier")} small>{"Arena Limited Championship Qualifier"}</TabButton>
             <TabButton active={tab === "championship"} onClick={() => setTab("championship")} small>{"Arena Championship Qualifier"}</TabButton>
+            <TabButton active={tab === "protour"} onClick={() => setTab("protour")} small>{"Pro Tour Qualifier"}</TabButton>
           </div>
         </div>
 
-        {tab === "qualifier" && <ArenaQualifierPanel />}
-        {tab === "protour" && <ProTourPanel />}
         {tab === "direct" && <ArenaDirectPanel />}
+        {tab === "qualifier" && <ArenaQualifierPanel />}
         {tab === "championship" && <ArenaChampionshipPanel />}
+        {tab === "protour" && <ProTourPanel />}
 
         <div style={{ textAlign: "center", fontSize: 10, color: "#333644", marginTop: 20, paddingBottom: 20 }}>
-          {"Exact binomial / DP math "}{DOT}{" No randomness anywhere "}{DOT}{" v8"}
+          {"Exact binomial / DP math "}{DOT}{" No randomness anywhere "}{DOT}{" v9"}
         </div>
       </div>
     </div>
